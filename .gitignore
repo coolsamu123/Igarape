@@ -34,3 +34,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# data (SQLite + uploaded files)
+/data/cioo.db
+/data/uploads/
+/data/service-account.json
+/data/drive/
