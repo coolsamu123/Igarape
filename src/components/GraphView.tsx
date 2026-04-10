@@ -5,14 +5,64 @@ import { useProjectContext } from '@/context/ProjectContext';
 import { useForceLayout } from '@/hooks/useForceLayout';
 import { getDDSColor, getGateColor, getDecisionColor } from '@/lib/constants';
 import AIAnalysisPanel from './AIAnalysisPanel';
+import type { ProjectSummary, CIOOProject } from '@/lib/types';
 
 export default function GraphView() {
   const { filtered, links, selected, setSelected, hovered, setHovered } = useProjectContext();
   const graphRef = useRef<HTMLDivElement>(null);
   const [graphSize, setGraphSize] = useState({ w: 900, h: 560 });
 
-  // Limit nodes for performance
-  const nodes = useMemo(() => filtered.slice(0, 150), [filtered]);
+  // Nodes logic including missing targets from links (like GIO_SERVICES)
+  const nodes = useMemo(() => {
+    const baseNodes = filtered.slice(0, 150);
+    const nodeIds = new Set(baseNodes.map(n => n.projectId));
+    
+    const extraNodes: ProjectSummary[] = [];
+    links.forEach(l => {
+      if (!nodeIds.has(l.source)) {
+        nodeIds.add(l.source);
+        extraNodes.push({
+          projectId: l.source,
+          name: l.source === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : l.source,
+          dds: l.source === 'GIO_SERVICES' ? 'GIO' : 'Unknown',
+          currentGate: '-',
+          latestDecision: '-',
+          costKEur: 0,
+          description: '',
+          remarks: '',
+          reviewCount: 0,
+          lastReviewDate: '',
+          linkPositions: '',
+          linkFolder: '',
+          linkCIOO: '',
+          tags: [] as string[],
+          history: [] as CIOOProject[]
+        });
+      }
+      if (!nodeIds.has(l.target)) {
+        nodeIds.add(l.target);
+        extraNodes.push({
+          projectId: l.target,
+          name: l.target === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : l.target,
+          dds: l.target === 'GIO_SERVICES' ? 'GIO' : 'Unknown',
+          currentGate: '-',
+          latestDecision: '-',
+          costKEur: 0,
+          description: '',
+          remarks: '',
+          reviewCount: 0,
+          lastReviewDate: '',
+          linkPositions: '',
+          linkFolder: '',
+          linkCIOO: '',
+          tags: [] as string[],
+          history: [] as CIOOProject[]
+        });
+      }
+    });
+    
+    return [...baseNodes, ...extraNodes];
+  }, [filtered, links]);
 
   useEffect(() => {
     const obs = new ResizeObserver(entries => {

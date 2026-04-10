@@ -10,18 +10,20 @@ export default function AdminPage() {
   const [testResult, setTestResult] = useState('');
   const [stats, setStats] = useState<{ analyses: number; documents: number } | null>(null);
 
+  // Upload Excel State
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState('');
+
   // Drive download state
-  const [driveStatus, setDriveStatus] = useState<{
-    isRunning: boolean;
-    totalUrls: number;
-    processedUrls: number;
-    totalFiles: number;
-    downloadedFiles: number;
-    skippedFiles: number;
-    errors: string[];
-    currentProject: string;
-  } | null>(null);
-  const [driveDocCount, setDriveDocCount] = useState(0);
+  
+    
+  
+
+  // Mappings state
+  const [mappings, setMappings] = useState<{ domain: string; owner: string }[]>([]);
+  const [newMappingDomain, setNewMappingDomain] = useState('');
+  const [newMappingOwner, setNewMappingOwner] = useState('');
+  const [mappingStatus, setMappingStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
     fetch('/api/admin/config')
@@ -32,33 +34,18 @@ export default function AdminPage() {
       })
       .catch(() => {});
 
-    // Fetch drive status
-    fetch('/api/drive')
+    
+
+    // Fetch mappings
+    fetch('/api/services/mapping')
       .then(r => r.json())
       .then(data => {
-        setDriveStatus(data.status || null);
-        setDriveDocCount(data.documentCount || 0);
+        if (data.mappings) setMappings(data.mappings);
       })
       .catch(() => {});
   }, []);
 
-  // Poll drive status while running
-  useEffect(() => {
-    if (!driveStatus?.isRunning) return;
-    const interval = setInterval(() => {
-      fetch('/api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'status' }) })
-        .then(r => r.json())
-        .then(data => {
-          setDriveStatus(data.status);
-          if (!data.status.isRunning) {
-            // Refresh doc count
-            fetch('/api/drive').then(r => r.json()).then(d => setDriveDocCount(d.documentCount || 0)).catch(() => {});
-          }
-        })
-        .catch(() => {});
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [driveStatus?.isRunning]);
+  
 
   const handleSave = async () => {
     if (!apiKey.trim()) return;
@@ -96,19 +83,63 @@ export default function AdminPage() {
     }
   };
 
-  const handleDriveDownload = async () => {
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadResult('Uploading and parsing...');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
     try {
-      const res = await fetch('/api/drive', {
+      const res = await fetch('/api/projects/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'start' }),
+        body: formData,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setDriveStatus(data.status);
-    } catch (e: unknown) {
-      setTestResult(e instanceof Error ? e.message : 'Drive download failed');
+
+      setUploadResult(`Success: Parsed ${data.count} projects from Excel.`);
+    } catch (err: unknown) {
+      setUploadResult(`Error: ${err instanceof Error ? err.message : 'Upload failed'}`);
+    } finally {
+      setUploading(false);
+      // reset file input
+      e.target.value = '';
     }
+  };
+
+  
+  const handleSaveMappings = async (updatedMappings: { domain: string; owner: string }[]) => {
+    setMappingStatus('saving');
+    try {
+      const res = await fetch('/api/services/mapping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mappings: updatedMappings }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      setMappings(updatedMappings);
+      setMappingStatus('saved');
+      setTimeout(() => setMappingStatus('idle'), 3000);
+    } catch {
+      setMappingStatus('error');
+    }
+  };
+
+  const handleAddMapping = () => {
+    if (!newMappingDomain.trim() || !newMappingOwner.trim()) return;
+    const updated = [...mappings, { domain: newMappingDomain.trim(), owner: newMappingOwner.trim() }];
+    handleSaveMappings(updated);
+    setNewMappingDomain('');
+    setNewMappingOwner('');
+  };
+
+  const handleRemoveMapping = (index: number) => {
+    const updated = mappings.filter((_, i) => i !== index);
+    handleSaveMappings(updated);
   };
 
   const handleClearCache = async () => {
@@ -309,6 +340,83 @@ export default function AdminPage() {
           )}
         </div>
 
+        {/* Upload Excel */}
+        <div style={panelStyle}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Upload Projects Metadata</div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+            Upload the master <strong>0_CIOO Forecast.xlsx</strong> file to populate the base project metadata (costs, dates, decisions).
+          </div>
+          
+          <label style={{
+            ...btnPrimary,
+            display: 'inline-block',
+            opacity: uploading ? 0.5 : 1,
+            cursor: uploading ? 'default' : 'pointer'
+          }}>
+            {uploading ? 'Uploading...' : 'Upload Excel File'}
+            <input 
+              type="file" 
+              accept=".xlsx, .xls" 
+              style={{ display: 'none' }} 
+              onChange={handleExcelUpload}
+              disabled={uploading}
+            />
+          </label>
+          
+          {uploadResult && (
+            <div style={{ marginTop: 14, background: uploadResult.startsWith('Error') ? '#450a0a' : '#1e3a8a44', border: uploadResult.startsWith('Error') ? '1px solid #7f1d1d' : '1px solid #1d4ed855', borderRadius: 8, padding: 12, fontSize: 13, color: uploadResult.startsWith('Error') ? '#fca5a5' : '#60a5fa' }}>
+              {uploadResult}
+            </div>
+          )}
+        </div>
+
+        {/* Domain to Owner Mappings */}
+        <div style={panelStyle}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Service Domain Mappings</div>
+          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+            Map domains to owners so the application can join the local <strong style={{color: '#e2e8f0'}}>service_offering.csv</strong> file using the <strong style={{color: '#e2e8f0'}}>owned_by</strong> column.
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {mappings.map((m, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, background: '#1f2937', padding: 10, borderRadius: 6, alignItems: 'center' }}>
+                <div style={{ flex: 1, fontSize: 13, color: '#e2e8f0' }}><strong>{m.domain}</strong> &rarr; {m.owner}</div>
+                <button onClick={() => handleRemoveMapping(i)} style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }}>Remove</button>
+              </div>
+            ))}
+            {mappings.length === 0 && (
+              <div style={{ fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>No mappings defined yet.</div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <input
+              type="text"
+              placeholder="e.g. Security & Compliance"
+              value={newMappingDomain}
+              onChange={e => setNewMappingDomain(e.target.value)}
+              style={inputStyle}
+            />
+            <input
+              type="text"
+              placeholder="e.g. Jean-Charles MARTIN"
+              value={newMappingOwner}
+              onChange={e => setNewMappingOwner(e.target.value)}
+              style={inputStyle}
+            />
+            <button
+              onClick={handleAddMapping}
+              disabled={!newMappingDomain.trim() || !newMappingOwner.trim() || mappingStatus === 'saving'}
+              style={{ ...btnPrimary, opacity: (!newMappingDomain.trim() || !newMappingOwner.trim() || mappingStatus === 'saving') ? 0.4 : 1 }}
+            >
+              Add
+            </button>
+          </div>
+          {mappingStatus === 'saved' && (
+            <div style={{ fontSize: 13, color: '#4ade80', marginTop: 10 }}>Mappings saved.</div>
+          )}
+        </div>
+
         {/* Cache */}
         <div style={panelStyle}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Analysis Cache</div>
@@ -330,75 +438,6 @@ export default function AdminPage() {
           <button onClick={handleClearCache} style={btnDanger}>Clear Cache</button>
         </div>
 
-        {/* Google Drive */}
-        <div style={panelStyle}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Google Drive Documents</div>
-          <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
-            Download project files from Google Drive using the service account. Files are saved locally and their content is sent to Gemini during impact analysis.
-          </div>
-
-          {/* Stats */}
-          <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
-            <div style={{ background: '#1f2937', borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 10, color: '#475569' }}>Cached Documents</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', fontFamily: "'DM Mono', monospace" }}>{driveDocCount}</div>
-            </div>
-            {driveStatus && !driveStatus.isRunning && driveStatus.downloadedFiles > 0 && (
-              <div style={{ background: '#1f2937', borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 10, color: '#475569' }}>Last Run Files</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', fontFamily: "'DM Mono', monospace" }}>{driveStatus.downloadedFiles}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Progress */}
-          {driveStatus?.isRunning && (
-            <div style={{ background: '#1f2937', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>Downloading...</span>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>{driveStatus.processedUrls}/{driveStatus.totalUrls} URLs</span>
-              </div>
-              <div style={{ background: '#374151', borderRadius: 4, height: 6, overflow: 'hidden' }}>
-                <div style={{
-                  height: '100%',
-                  borderRadius: 4,
-                  background: 'linear-gradient(90deg, #1d4ed8, #7c3aed)',
-                  width: driveStatus.totalUrls > 0 ? `${(driveStatus.processedUrls / driveStatus.totalUrls * 100)}%` : '0%',
-                  transition: 'width 0.3s ease',
-                }} />
-              </div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>{driveStatus.currentProject}</div>
-              <div style={{ fontSize: 11, color: '#64748b' }}>
-                {driveStatus.downloadedFiles} downloaded, {driveStatus.skippedFiles} skipped
-              </div>
-            </div>
-          )}
-
-          {/* Errors */}
-          {driveStatus && driveStatus.errors.length > 0 && !driveStatus.isRunning && (
-            <div style={{ background: '#450a0a', border: '1px solid #7f1d1d', borderRadius: 8, padding: 12, marginBottom: 16, maxHeight: 120, overflow: 'auto' }}>
-              <div style={{ fontSize: 11, color: '#fca5a5', fontWeight: 700, marginBottom: 6 }}>{driveStatus.errors.length} errors</div>
-              {driveStatus.errors.slice(0, 5).map((e, i) => (
-                <div key={i} style={{ fontSize: 11, color: '#fca5a5', marginBottom: 2 }}>{e}</div>
-              ))}
-              {driveStatus.errors.length > 5 && (
-                <div style={{ fontSize: 11, color: '#fca5a5' }}>...and {driveStatus.errors.length - 5} more</div>
-              )}
-            </div>
-          )}
-
-          <button
-            onClick={handleDriveDownload}
-            disabled={driveStatus?.isRunning}
-            style={{ ...btnPrimary, opacity: driveStatus?.isRunning ? 0.4 : 1 }}
-          >
-            {driveStatus?.isRunning ? 'Downloading...' : 'Download Drive Files'}
-          </button>
-          <div style={{ fontSize: 12, color: '#475569', marginTop: 10 }}>
-            Requires <code style={{ color: '#94a3b8' }}>data/service-account.json</code> with Google Drive read access.
-          </div>
-        </div>
-
         {/* How it works */}
         <div style={panelStyle}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 16 }}>How Impact Analysis Works</div>
@@ -407,7 +446,7 @@ export default function AdminPage() {
               <span style={chipStyle('#1e3a8a44', '#60a5fa')}>1. BATCH ANALYSIS</span>
               <p style={{ fontSize: 13, color: '#94a3b8', marginTop: 10, lineHeight: 1.6 }}>
                 Go to the <strong style={{ color: '#e2e8f0' }}>Impact</strong> tab and click <strong style={{ color: '#e2e8f0' }}>Start Full Analysis</strong>.
-                Gemini analyzes all 822 projects in batches of ~22, grouped by DDS division, then cross-DDS.
+                Gemini analyzes all projects in batches of ~22, grouped by DDS division, then cross-DDS.
               </p>
             </div>
             <div style={{ background: '#1f2937', borderRadius: 8, padding: 14 }}>
@@ -417,9 +456,9 @@ export default function AdminPage() {
               </p>
             </div>
             <div style={{ background: '#1f2937', borderRadius: 8, padding: 14 }}>
-              <span style={chipStyle('#052e1644', '#4ade80')}>3. DRIVE DOCUMENTS</span>
+              <span style={chipStyle('#052e1644', '#4ade80')}>3. SUB-APP INSIGHTS</span>
               <p style={{ fontSize: 13, color: '#94a3b8', marginTop: 10, lineHeight: 1.6 }}>
-                If you download Drive files first, their content is <strong style={{ color: '#e2e8f0' }}>automatically included</strong> in the Gemini prompts — giving the AI richer context about each project (documents, spreadsheets, presentations).
+                The engine now automatically pulls deep structured insights (8 dimensions like Digital Technologies, AI Embedded, Security) from the <strong style={{ color: '#e2e8f0' }}>Goals Extractor Sub-App</strong> to enhance the precision of the AI matching.
               </p>
             </div>
             <div style={{ background: '#1f2937', borderRadius: 8, padding: 14 }}>

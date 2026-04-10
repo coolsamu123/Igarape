@@ -121,27 +121,40 @@ export async function analyzeWithDocuments(
 
 // ─── Prompt Builders ────────────────────────────────────────────────────────
 
+function buildProjectPromptContext(p: ProjectSummary): string {
+  let ctx = `
+- ServiceNow ID: ${p.projectId}
+- Division (DDS): ${p.dds}
+- Current Gate: ${p.currentGate}
+- Cost: ${p.costKEur ? p.costKEur + 'k€' : 'N/A'}
+- Latest Decision: ${p.latestDecision || 'N/A'}
+- Description: ${p.description || 'No description available'}
+- Remarks: ${p.remarks || 'No remarks'}
+`;
+
+  if (p.subappAnalyzed) {
+    ctx += `- Digital Technologies: ${p.digitalTechnologies || 'N/A'}
+- AI/IA Embedded: ${p.iaEmbedded || 'N/A'}
+- Security Impacts: ${p.securityImpacts || 'N/A'}
+- Change Management: ${p.changeManagement || 'N/A'}
+- Regional Impacts: ${p.regionalImpacts || 'N/A'}
+- GIO SL/DDS Impacts: ${p.gioSlDdsImpacts || 'N/A'}
+- DDS/GIO Workload: ${p.ddsGioWorkload || 'N/A'}
+- Business Apps & CIs: ${p.businessAppsCis || 'N/A'}
+`;
+  }
+  return ctx.trim();
+}
+
 function buildPairwisePrompt(a: ProjectSummary, b: ProjectSummary): string {
   return `You are an IT portfolio analyst for a large industrial company (Air Liquide).
 Analyze the intersection between these two IT projects:
 
 PROJECT A: ${a.name}
-- ServiceNow ID: ${a.projectId}
-- Division (DDS): ${a.dds}
-- Current Gate: ${a.currentGate}
-- Cost: ${a.costKEur ? a.costKEur + 'k€' : 'N/A'}
-- Latest Decision: ${a.latestDecision || 'N/A'}
-- Description: ${a.description || 'No description available'}
-- Remarks: ${a.remarks || 'No remarks'}
+${buildProjectPromptContext(a)}
 
 PROJECT B: ${b.name}
-- ServiceNow ID: ${b.projectId}
-- Division (DDS): ${b.dds}
-- Current Gate: ${b.currentGate}
-- Cost: ${b.costKEur ? b.costKEur + 'k€' : 'N/A'}
-- Latest Decision: ${b.latestDecision || 'N/A'}
-- Description: ${b.description || 'No description available'}
-- Remarks: ${b.remarks || 'No remarks'}
+${buildProjectPromptContext(b)}
 
 Analyze and return ONLY a JSON object (no markdown, no code fences) with this structure:
 {
@@ -154,16 +167,14 @@ Analyze and return ONLY a JSON object (no markdown, no code fences) with this st
 
 Focus on:
 1. Thematic overlaps (technology, business domain, infrastructure, data)
-2. Potential synergies (shared resources, common platforms, cost optimization)
-3. Risks (dependency conflicts, resource contention, timeline clashes, redundancy)
-4. Concrete recommendations for coordination between these projects`;
+2. Potential synergies (shared resources, common platforms, cost optimization) - specifically look for matching elements in Digital Technologies and Business Apps & CIs
+3. Risks (dependency conflicts, resource contention, timeline clashes, redundancy) - specifically look for compounding complexities in Security Impacts or Change Management
+4. Concrete recommendations for coordination between these projects - including operational bottlenecks or overlapping constraints in DDS/GIO Workload or GIO SL/DDS Impacts`;
 }
 
 function buildClusterPrompt(projects: ProjectSummary[]): string {
   const projectList = projects.map(p =>
-    `- ${p.name} (${p.projectId}, DDS: ${p.dds}, Gate: ${p.currentGate}, Cost: ${p.costKEur || 'N/A'}k€)
-  Description: ${p.description || 'N/A'}
-  Remarks: ${p.remarks || 'N/A'}`
+    `### PROJECT: ${p.name}\n${buildProjectPromptContext(p)}`
   ).join('\n\n');
 
   return `You are an IT portfolio analyst for a large industrial company (Air Liquide).
@@ -181,9 +192,9 @@ Analyze and return ONLY a JSON object (no markdown, no code fences) with this st
 }
 
 Focus on:
-1. Common threads across all projects
+1. Common threads across all projects (especially in Digital Technologies and AI Embedded)
 2. Redundancies or overlapping investments
-3. Portfolio optimization opportunities
+3. Portfolio optimization opportunities (shared resources in GIO Workload)
 4. Governance and coordination recommendations`;
 }
 

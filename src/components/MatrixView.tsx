@@ -3,29 +3,84 @@
 import { useMemo } from 'react';
 import { useProjectContext } from '@/context/ProjectContext';
 import { getDDSColor } from '@/lib/constants';
-import { computeSimilarity } from '@/lib/similarity';
+import type { ProjectSummary, CIOOProject } from '@/lib/types';
+
 
 export default function MatrixView() {
-  const { filtered, setSelected, setView } = useProjectContext();
+  const { filtered, links, setSelected, setView } = useProjectContext();
 
-  // Limit matrix to top 50 for performance
-  const matrixProjects = useMemo(() => filtered.slice(0, 50), [filtered]);
+  // Matrix projects including targets from links
+  const matrixProjects = useMemo(() => {
+    const base = filtered.slice(0, 50);
+    const nodeIds = new Set(base.map(n => n.projectId));
+    const extraNodes: ProjectSummary[] = [];
+    
+    links.forEach(l => {
+      if (extraNodes.length + base.length >= 70) return; // limit
+      if (!nodeIds.has(l.source)) {
+        nodeIds.add(l.source);
+        extraNodes.push({
+          projectId: l.source,
+          name: l.source === 'GIO_SERVICES' ? 'GIO Services' : l.source,
+          dds: l.source === 'GIO_SERVICES' ? 'GIO' : 'Unknown',
+          currentGate: '-',
+          latestDecision: '-',
+          costKEur: 0,
+          description: '',
+          remarks: '',
+          reviewCount: 0,
+          lastReviewDate: '',
+          linkPositions: '',
+          linkFolder: '',
+          linkCIOO: '',
+          tags: [] as string[],
+          history: [] as CIOOProject[]
+        });
+      }
+      if (!nodeIds.has(l.target) && extraNodes.length + base.length < 70) {
+        nodeIds.add(l.target);
+        extraNodes.push({
+          projectId: l.target,
+          name: l.target === 'GIO_SERVICES' ? 'GIO Services' : l.target,
+          dds: l.target === 'GIO_SERVICES' ? 'GIO' : 'Unknown',
+          currentGate: '-',
+          latestDecision: '-',
+          costKEur: 0,
+          description: '',
+          remarks: '',
+          reviewCount: 0,
+          lastReviewDate: '',
+          linkPositions: '',
+          linkFolder: '',
+          linkCIOO: '',
+          tags: [] as string[],
+          history: [] as CIOOProject[]
+        });
+      }
+    });
+    
+    return [...base, ...extraNodes];
+  }, [filtered, links]);
 
-  // Precompute similarity matrix
+  // Precompute impact matrix
   const matrix = useMemo(() => {
     const m: Record<string, Record<string, number>> = {};
     for (const a of matrixProjects) {
       m[a.projectId] = {};
       for (const b of matrixProjects) {
         if (a.projectId === b.projectId) {
-          m[a.projectId][b.projectId] = 1;
+          m[a.projectId][b.projectId] = 1; // Self
         } else {
-          m[a.projectId][b.projectId] = computeSimilarity(a, b);
+          const link = links.find(l => 
+            (l.source === a.projectId && l.target === b.projectId) || 
+            (l.source === b.projectId && l.target === a.projectId)
+          );
+          m[a.projectId][b.projectId] = link ? link.strength : 0;
         }
       }
     }
     return m;
-  }, [matrixProjects]);
+  }, [matrixProjects, links]);
 
   // Tag cloud
   const tagCounts = useMemo(() => {
@@ -37,7 +92,7 @@ export default function MatrixView() {
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
       <div className="text-[13px] text-gray-500 mb-4">
-        Intersection matrix — color intensity = similarity score ({matrixProjects.length} projects shown, max 50)
+        Impact matrix — color intensity = impact severity ({matrixProjects.length} projects shown, max 70)
       </div>
 
       <div className="overflow-x-auto">

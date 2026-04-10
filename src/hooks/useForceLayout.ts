@@ -52,7 +52,10 @@ export function useForceLayout(
           const dx = pb.x - pa.x;
           const dy = pb.y - pa.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = (3000 / (dist * dist)) * alpha;
+          
+          // INCREASE REPULSION: Force minimum distance between nodes
+          // Increased from 3000 to 12000 to push bubbles apart by ~0.5cm+
+          const force = (12000 / (dist * dist)) * alpha;
           pa.vx -= (dx / dist) * force;
           pa.vy -= (dy / dist) * force;
           pb.vx += (dx / dist) * force;
@@ -66,7 +69,10 @@ export function useForceLayout(
         if (!a || !b) continue;
         const dx = b.x - a.x, dy = b.y - a.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const ideal = 120 + (1 - link.strength) * 200;
+        
+        // INCREASE IDEAL DISTANCE: Base distance was 120, now 180. 
+        // This ensures even strongly linked bubbles stay apart
+        const ideal = 180 + (1 - link.strength) * 250;
         const force = (dist - ideal) * 0.05 * alpha * link.strength;
         a.vx += (dx / dist) * force;
         a.vy += (dy / dist) * force;

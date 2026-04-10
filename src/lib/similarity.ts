@@ -132,8 +132,8 @@ const TECH_KEYWORDS = new Set([
   'mes', 'plc', 'hmi', 'dcs', 'ot', 'it/ot',
 ]);
 
-export function extractTags(project: { name: string; description: string; remarks: string }): string[] {
-  const text = `${project.name} ${project.description} ${project.remarks}`.toLowerCase();
+export function extractTags(project: { name: string; description: string; remarks: string; subappText?: string }): string[] {
+  const text = `${project.name} ${project.description} ${project.remarks} ${project.subappText || ''}`.toLowerCase();
   const tags: string[] = [];
 
   for (const kw of TECH_KEYWORDS) {

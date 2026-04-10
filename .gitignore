@@ -40,3 +40,10 @@ next-env.d.ts
 /data/uploads/
 /data/service-account.json
 /data/drive/
+
+# local dev / throwaway scripts and test artifacts
+/gdrive_manual_test/
+/screenshot/
+/fix_lint*.js
+/patch_*.js
+/test_*.js

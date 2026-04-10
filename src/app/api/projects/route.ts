@@ -16,11 +16,33 @@ export async function GET(request: NextRequest) {
     }
 
     // Default: return deduplicated project summaries
-    const rows = db.prepare(`
-      SELECT * FROM projects
-      WHERE project_id != ''
-      ORDER BY project_id, review_date DESC
-    `).all() as DbRow[];
+    // Try to join with project_goals if the table exists (it's created by the subapp)
+    let rows: DbRow[] = [];
+    try {
+      rows = db.prepare(`
+        SELECT 
+          p.*,
+          g.digital_technologies,
+          g.change_management,
+          g.security_impacts,
+          g.regional_impacts,
+          g.ia_embedded,
+          g.gio_sl_dds_impacts,
+          g.dds_gio_workload,
+          g.business_apps_cis
+        FROM projects p
+        LEFT JOIN project_goals g ON p.project_id = g.project_id
+        WHERE p.project_id != ''
+        ORDER BY p.project_id, p.review_date DESC
+      `).all() as DbRow[];
+    } catch {
+      // Fallback if project_goals doesn't exist yet
+      rows = db.prepare(`
+        SELECT * FROM projects
+        WHERE project_id != ''
+        ORDER BY project_id, review_date DESC
+      `).all() as DbRow[];
+    }
 
     const grouped = new Map<string, DbRow[]>();
     for (const row of rows) {
@@ -52,8 +74,24 @@ export async function GET(request: NextRequest) {
         linkPositions: entries.find(e => e.link_positions)?.link_positions || '',
         linkFolder: entries.find(e => e.link_folder)?.link_folder || '',
         linkCIOO: entries.find(e => e.link_cioo)?.link_cioo || '',
-        tags: extractTags({ name: latest.name, description: bestDescription, remarks: bestRemarks }),
+        tags: extractTags({ 
+          name: latest.name, 
+          description: bestDescription, 
+          remarks: bestRemarks,
+          subappText: [latest.digital_technologies, latest.business_apps_cis, latest.security_impacts, latest.ia_embedded].filter(Boolean).join(' ')
+        }),
         history: entries.map(mapRowToProject),
+
+        digitalTechnologies: latest.digital_technologies,
+        changeManagement: latest.change_management,
+        securityImpacts: latest.security_impacts,
+        regionalImpacts: latest.regional_impacts,
+        iaEmbedded: latest.ia_embedded,
+        gioSlDdsImpacts: latest.gio_sl_dds_impacts,
+        ddsGioWorkload: latest.dds_gio_workload,
+        businessAppsCis: latest.business_apps_cis,
+        subappAnalyzed: !!latest.digital_technologies || !!latest.ia_embedded,
+        services: latest.services ? JSON.parse(latest.services) : [],
       };
 
       summaries.push(summary);
@@ -106,6 +144,17 @@ interface DbRow {
   year: number | null;
   month: number | null;
   batch_id: string;
+  services?: string;
+
+  // From project_goals JOIN
+  digital_technologies?: string;
+  change_management?: string;
+  security_impacts?: string;
+  regional_impacts?: string;
+  ia_embedded?: string;
+  gio_sl_dds_impacts?: string;
+  dds_gio_workload?: string;
+  business_apps_cis?: string;
 }
 
 function mapRowToProject(row: DbRow): CIOOProject {
@@ -137,6 +186,7 @@ function mapRowToProject(row: DbRow): CIOOProject {
     year: row.year,
     month: row.month,
     batchId: row.batch_id,
+    services: row.services ? JSON.parse(row.services) : [],
   };
 }
 

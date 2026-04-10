@@ -51,14 +51,24 @@ export default function DetailView() {
               )}
 
               {/* Decision badge */}
-              {p.latestDecision && (
-                <div className="mb-3">
+              <div className="mb-3 flex gap-2 flex-wrap">
+                {p.latestDecision && (
                   <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold"
                     style={{ background: `${getDecisionColor(p.latestDecision)}22`, color: getDecisionColor(p.latestDecision) }}>
                     {p.latestDecision}
                   </span>
-                </div>
-              )}
+                )}
+                {p.iaEmbedded && p.iaEmbedded !== 'Not identified' && (
+                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                    AI Powered ✨
+                  </span>
+                )}
+                {p.securityImpacts && p.securityImpacts !== 'Not identified' && (
+                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30">
+                    Security Impact
+                  </span>
+                )}
+              </div>
 
               {/* Stats row */}
               <div className="flex justify-between text-[11px] text-gray-500">
@@ -118,6 +128,69 @@ export default function DetailView() {
                         <div className="text-[10px] text-gray-500">Cost</div>
                         <div className="text-xs font-semibold text-gray-200">{p.costKEur ? `${p.costKEur}k€` : 'N/A'}</div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Sub-App AI Extracted Fields */}
+                  {p.subappAnalyzed && (
+                    <div className="space-y-3 mt-4">
+                      <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider border-b border-gray-700 pb-1">AI Extracted Insights</div>
+                      
+                      {p.digitalTechnologies && p.digitalTechnologies !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DIGITAL TECHNOLOGIES</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.digitalTechnologies}</div>
+                        </div>
+                      )}
+                      
+                      {p.businessAppsCis && p.businessAppsCis !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">BUSINESS APPS & CIs</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.businessAppsCis}</div>
+                        </div>
+                      )}
+                      
+                      {p.gioSlDdsImpacts && p.gioSlDdsImpacts !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">GIO SL / DDS IMPACTS</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.gioSlDdsImpacts}</div>
+                        </div>
+                      )}
+                      
+                      {p.ddsGioWorkload && p.ddsGioWorkload !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DDS / GIO WORKLOAD</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.ddsGioWorkload}</div>
+                        </div>
+                      )}
+                      
+                      {p.changeManagement && p.changeManagement !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">CHANGE MANAGEMENT</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.changeManagement}</div>
+                        </div>
+                      )}
+                      
+                      {p.regionalImpacts && p.regionalImpacts !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">REGIONAL IMPACTS</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.regionalImpacts}</div>
+                        </div>
+                      )}
+                      
+                      {p.securityImpacts && p.securityImpacts !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-red-500 font-semibold mb-0.5">SECURITY IMPACTS</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.securityImpacts}</div>
+                        </div>
+                      )}
+                      
+                      {p.iaEmbedded && p.iaEmbedded !== 'Not identified' && (
+                        <div>
+                          <div className="text-[10px] text-purple-500 font-semibold mb-0.5">AI EMBEDDED</div>
+                          <div className="text-xs text-gray-300 leading-relaxed">{p.iaEmbedded}</div>
+                        </div>
+                      )}
                     </div>
                   )}
 

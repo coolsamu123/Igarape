@@ -1,5 +1,12 @@
 // ─── CIOO Project Data Model ─────────────────────────────────────────────────
 
+export interface CIOOService {
+  id: string;
+  name: string;
+  owner: string;
+  domain: string;
+}
+
 export interface CIOOProject {
   id: number;
   projectId: string;        // ServiceNow # (PRJ0004517)
@@ -28,6 +35,7 @@ export interface CIOOProject {
   year: number | null;
   month: number | null;
   batchId: string;
+  services?: CIOOService[];
 }
 
 // Deduplicated project (latest gate review per ServiceNow #)
@@ -48,6 +56,28 @@ export interface ProjectSummary {
   // Computed
   tags: string[];
   history: CIOOProject[];
+
+  // New Sub-App fields
+  digitalTechnologies?: string;
+  changeManagement?: string;
+  securityImpacts?: string;
+  regionalImpacts?: string;
+  iaEmbedded?: string;
+  gioSlDdsImpacts?: string;
+  ddsGioWorkload?: string;
+  businessAppsCis?: string;
+  
+  // project_goals fields
+  region?: string;
+  monthFolder?: string;
+  rawGeminiResponse?: string;
+  sourceFiles?: string;
+  analyzedAt?: string;
+  goalStatus?: string;
+  errorMessage?: string;
+
+  subappAnalyzed?: boolean;
+  services?: CIOOService[];
 }
 
 // Similarity link between two projects
@@ -83,7 +113,7 @@ export interface FilterState {
 }
 
 // View type
-export type ViewType = 'graph' | 'matrix' | 'timeline' | 'detail' | 'impact';
+export type ViewType = 'graph' | 'matrix' | 'timeline' | 'detail' | 'impact' | 'goals' | 'drive' | 'archflow';
 
 // ─── Impact Analysis ──────────────────────────────────────────────────────────
 
@@ -97,6 +127,8 @@ export interface ProjectImpact {
   explanation: string;
   batchId: string;
   createdAt: string;
+  // GIO specific flags parsed from JSON (JSON array stored in DB)
+  gioServices?: string[];
 }
 
 export interface ImpactAnalysisStatus {

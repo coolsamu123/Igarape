@@ -10,6 +10,9 @@ import MatrixView from '@/components/MatrixView';
 import TimelineView from '@/components/TimelineView';
 import DetailView from '@/components/DetailView';
 import ImpactView from '@/components/ImpactView';
+import GoalsView from '@/components/GoalsView';
+import DriveView from '@/components/DriveView';
+import ArchFlowView from '@/components/ArchFlowView';
 import FileUpload from '@/components/FileUpload';
 
 export default function Home() {
@@ -32,7 +35,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0e1a] overflow-hidden" style={{ height: '100vh' }}>
       <Header />
-      <Toolbar />
+      {view !== 'goals' && view !== 'drive' && view !== 'archflow' && <Toolbar />}
 
       <div className="flex-1 flex overflow-hidden">
         {view === 'graph' && <GraphView />}
@@ -40,8 +43,11 @@ export default function Home() {
         {view === 'timeline' && <TimelineView />}
         {view === 'detail' && <DetailView />}
         {view === 'impact' && <ImpactView />}
+        {view === 'goals' && <GoalsView />}
+        {view === 'drive' && <DriveView />}
+        {view === 'archflow' && <ArchFlowView />}
 
-        <Sidebar />
+        {view !== 'goals' && view !== 'drive' && view !== 'archflow' && <Sidebar />}
       </div>
     </div>
   );

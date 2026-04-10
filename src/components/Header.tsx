@@ -9,6 +9,9 @@ const NAV_ITEMS: { key: ViewType; label: string }[] = [
   { key: 'timeline', label: '⟶ Timeline' },
   { key: 'detail', label: '≡ Details' },
   { key: 'impact', label: '→ Impact' },
+  { key: 'goals', label: '✦ Goals Extractor' },
+  { key: 'drive', label: '☁ Drive Sync' },
+  { key: 'archflow', label: '⟳ ArchFlow' },
 ];
 
 export default function Header() {

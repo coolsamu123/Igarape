@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb } from './db';
 import { extractTags } from './similarity';
 import { getProjectDocuments } from './drive-engine';
+import { getPrompts } from './prompts';
 import type { ProjectSummary, ProjectImpact, ImpactAnalysisStatus } from './types';
 
 // ─── Module-level state for tracking analysis progress ───────────────────────
@@ -30,9 +31,18 @@ function getGeminiClient() {
 function fetchAllProjectSummaries(): ProjectSummary[] {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT * FROM projects
-    WHERE project_id != ''
-    ORDER BY project_id, review_date DESC
+    SELECT 
+      g.id as goal_id, g.project_id, g.project_name, g.region, g.gate as goal_gate, 
+      g.month_folder, g.digital_technologies, g.change_management, g.security_impacts, 
+      g.regional_impacts, g.ia_embedded, g.gio_sl_dds_impacts, g.dds_gio_workload, 
+      g.business_apps_cis, g.raw_gemini_response, g.source_files, g.analyzed_at, 
+      g.status as goal_status, g.error_message,
+      p.dds, p.decision, p.cost_keur, p.description, p.remarks, 
+      p.review_date, p.link_positions, p.link_folder, p.link_cioo
+    FROM project_goals g
+    LEFT JOIN projects p ON g.project_id = p.project_id
+    WHERE g.project_id != '' AND g.status = 'success'
+    ORDER BY g.project_id, p.review_date DESC
   `).all() as Record<string, unknown>[];
 
   const grouped = new Map<string, Record<string, unknown>[]>();
@@ -52,9 +62,9 @@ function fetchAllProjectSummaries(): ProjectSummary[] {
 
     summaries.push({
       projectId,
-      name: latest.name as string,
+      name: (latest.project_name as string) || '',
       dds: latest.dds as string,
-      currentGate: latest.gate as string,
+      currentGate: (latest.goal_gate as string) || '',
       latestDecision: latest.decision as string,
       costKEur: latest.cost_keur as number | null,
       description: bestDescription,
@@ -65,11 +75,28 @@ function fetchAllProjectSummaries(): ProjectSummary[] {
       linkFolder: (entries.find(e => e.link_folder) || latest).link_folder as string || '',
       linkCIOO: (entries.find(e => e.link_cioo) || latest).link_cioo as string || '',
       tags: extractTags({
-        name: latest.name as string,
+        name: latest.project_name as string || '',
         description: bestDescription,
         remarks: bestRemarks,
       }),
       history: [],
+      
+      // Map new goal fields
+      region: latest.region as string,
+      monthFolder: latest.month_folder as string,
+      digitalTechnologies: latest.digital_technologies as string,
+      changeManagement: latest.change_management as string,
+      securityImpacts: latest.security_impacts as string,
+      regionalImpacts: latest.regional_impacts as string,
+      iaEmbedded: latest.ia_embedded as string,
+      gioSlDdsImpacts: latest.gio_sl_dds_impacts as string,
+      ddsGioWorkload: latest.dds_gio_workload as string,
+      businessAppsCis: latest.business_apps_cis as string,
+      rawGeminiResponse: latest.raw_gemini_response as string,
+      sourceFiles: latest.source_files as string,
+      analyzedAt: latest.analyzed_at as string,
+      goalStatus: latest.goal_status as string,
+      errorMessage: latest.error_message as string,
     });
   }
 
@@ -144,6 +171,14 @@ function buildImpactPrompt(projects: ProjectSummary[]): string {
     let entry = `- ${p.projectId}: "${p.name}" (DDS: ${p.dds || 'N/A'}, Gate: ${p.currentGate || 'N/A'}, Cost: ${cost})`;
     if (p.description) entry += `\n  Description: ${p.description}`;
     if (p.remarks) entry += `\n  Remarks: ${p.remarks}`;
+    if (p.digitalTechnologies) entry += `\n  Digital Technologies: ${p.digitalTechnologies}`;
+    if (p.changeManagement) entry += `\n  Change Management: ${p.changeManagement}`;
+    if (p.securityImpacts) entry += `\n  Security Impacts: ${p.securityImpacts}`;
+    if (p.regionalImpacts) entry += `\n  Regional Impacts: ${p.regionalImpacts}`;
+    if (p.iaEmbedded) entry += `\n  IA Embedded: ${p.iaEmbedded}`;
+    if (p.gioSlDdsImpacts) entry += `\n  GIO Impacts: ${p.gioSlDdsImpacts}`;
+    if (p.ddsGioWorkload) entry += `\n  GIO Workload: ${p.ddsGioWorkload}`;
+    if (p.businessAppsCis) entry += `\n  Business Apps/CIs: ${p.businessAppsCis}`;
 
     // Include downloaded document content if available
     try {
@@ -165,30 +200,8 @@ function buildImpactPrompt(projects: ProjectSummary[]): string {
   // Cap project list to avoid exceeding token limits
   const cappedList = projectList.slice(0, 60000);
 
-  return `You are an IT portfolio analyst for a large industrial company (Air Liquide).
-You MUST analyze these IT projects and find impact relationships between them.
-
-Look for:
-- Projects using the same technology, platform, or vendor
-- Projects where one blocks or enables another
-- Projects sharing infrastructure, data sources, or APIs
-- Projects competing for the same resources or budget
-- Projects that need coordination due to overlapping scope
-
-PROJECTS:
-${cappedList}
-
-IMPORTANT: You MUST return a JSON array. Find at least the obvious connections.
-Each object must have these exact fields:
-- "source": project ID (e.g. "PRJ0004517")
-- "target": project ID (e.g. "PRJ0003891")
-- "impact_type": one of [technology_dependency, infrastructure_shared, data_dependency, timeline_blocking, resource_contention, organizational, platform_shared, vendor_shared, integration_required, security_dependency]
-- "direction": one of [blocks, enables, shares_resource, feeds_data, competes_with, requires_coordination]
-- "severity": one of [high, medium, low]
-- "explanation": 1-2 sentences why
-
-Return ONLY a JSON array. Example:
-[{"source":"PRJ0001234","target":"PRJ0005678","impact_type":"platform_shared","direction":"shares_resource","severity":"medium","explanation":"Both projects deploy on the same SAP platform."}]`;
+  const { impactPrompt } = getPrompts();
+  return impactPrompt.replace('{{PROJECTS_LIST}}', cappedList);
 }
 
 // ─── Parse Gemini response robustly ──────────────────────────────────────────
@@ -200,6 +213,7 @@ interface RawImpact {
   direction: string;
   severity: string;
   explanation: string;
+  gio_services?: string[];
 }
 
 function parseImpactResponse(text: string): RawImpact[] {
@@ -228,6 +242,7 @@ function parseImpactResponse(text: string): RawImpact[] {
       direction: (item.direction || item.relationship || 'requires_coordination') as string,
       severity: (item.severity || item.level || 'medium') as string,
       explanation: (item.explanation || item.reason || item.description || '') as string,
+      gio_services: Array.isArray(item.gio_services) ? item.gio_services as string[] : [],
     })).filter(item => item.source && item.target) as RawImpact[];
   } catch (err) {
     console.error('[Impact] Failed to parse Gemini response:', (err as Error).message, '— raw:', text.slice(0, 500));
@@ -240,9 +255,9 @@ function parseImpactResponse(text: string): RawImpact[] {
 function storeImpacts(impacts: RawImpact[], batchId: string): number {
   const db = getDb();
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO projects_impact
-    (source_project_id, target_project_id, impact_type, direction, severity, explanation, batch_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO projects_impact
+    (source_project_id, target_project_id, impact_type, direction, severity, explanation, batch_id, gio_services)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let inserted = 0;
@@ -255,7 +270,8 @@ function storeImpacts(impacts: RawImpact[], batchId: string): number {
         item.direction,
         item.severity,
         item.explanation || '',
-        batchId
+        batchId,
+        JSON.stringify(item.gio_services || [])
       );
       if (result.changes > 0) inserted++;
     }
@@ -414,9 +430,15 @@ interface ImpactDbRow {
   explanation: string;
   batch_id: string;
   created_at: string;
+  gio_services: string;
 }
 
 function mapImpactRow(row: ImpactDbRow): ProjectImpact {
+  let parsedGio: string[] = [];
+  try {
+    parsedGio = row.gio_services ? JSON.parse(row.gio_services) : [];
+  } catch { /* ignore */ }
+  
   return {
     id: row.id,
     sourceProjectId: row.source_project_id,
@@ -427,5 +449,6 @@ function mapImpactRow(row: ImpactDbRow): ProjectImpact {
     explanation: row.explanation,
     batchId: row.batch_id,
     createdAt: row.created_at,
+    gioServices: parsedGio,
   };
 }

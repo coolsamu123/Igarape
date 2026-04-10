@@ -1,13 +1,15 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
-import type { ProjectSummary, SimilarityLink, FilterState, ViewType, AnalysisResult } from '@/lib/types';
-import { buildSimilarityLinks } from '@/lib/similarity';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, type ReactNode } from 'react';
+import type { ProjectSummary, SimilarityLink, FilterState, ViewType, AnalysisResult, ProjectImpact } from '@/lib/types';
 
 interface ProjectContextType {
   // Data
   projects: ProjectSummary[];
+  setProjects: (projects: ProjectSummary[]) => void;
   links: SimilarityLink[];
+  impacts: ProjectImpact[];
+  setImpacts: (impacts: ProjectImpact[]) => void;
   stats: Record<string, unknown> | null;
   isLoading: boolean;
   error: string | null;
@@ -42,6 +44,7 @@ const ProjectContext = createContext<ProjectContextType | null>(null);
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [stats, setStats] = useState<Record<string, unknown> | null>(null);
+  const [impacts, setImpacts] = useState<ProjectImpact[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +61,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     search: '',
   });
   const [analysisResults, setAnalysisResults] = useState<Map<string, AnalysisResult>>(new Map());
+
+  // Initial fetch of impacts
+  useEffect(() => {
+    fetch('/api/impact').then(r => r.json()).then(d => d.impacts && setImpacts(d.impacts)).catch(() => {});
+  }, []);
 
   const filtered = useMemo(() => {
     return projects.filter(p => {
@@ -85,10 +93,34 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, [projects, filters]);
 
   const links = useMemo(() => {
-    // Limit to 200 projects for performance in graph
-    const subset = filtered.slice(0, 200);
-    return buildSimilarityLinks(subset, threshold);
-  }, [filtered, threshold]);
+    const globalFilteredIds = new Set(filtered.map(p => p.projectId));
+
+    const matchedImpacts = impacts.filter(imp => {
+      let isSourceVisible = globalFilteredIds.has(imp.sourceProjectId);
+      let isTargetVisible = globalFilteredIds.has(imp.targetProjectId);
+      
+      if (imp.targetProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
+        isTargetVisible = true;
+      }
+      if (imp.sourceProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
+        isSourceVisible = true;
+      }
+      
+      return isSourceVisible || isTargetVisible;
+    });
+
+    return matchedImpacts.map(imp => {
+      let strength = 0.5;
+      if (imp.severity === 'high') strength = 1.0;
+      if (imp.severity === 'low') strength = 0.25;
+      return {
+        source: imp.sourceProjectId,
+        target: imp.targetProjectId,
+        strength,
+        aiAnalyzed: true
+      };
+    });
+  }, [impacts, filtered, filters.dds]);
 
   const uploadFile = useCallback(async (file: File) => {
     setIsLoading(true);
@@ -119,6 +151,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setProjects(data.projects);
       setStats(data.stats || null);
     }
+    try {
+      const impRes = await fetch('/api/impact');
+      const impData = await impRes.json();
+      if (impData.impacts) setImpacts(impData.impacts);
+    } catch { /* ignore */ }
   };
 
   const refreshProjects = useCallback(async () => {
@@ -164,7 +201,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   return (
     <ProjectContext.Provider value={{
-      projects, links, stats, isLoading, error,
+      projects, setProjects, links, impacts, setImpacts, stats, isLoading, error,
       view, setView, selected, setSelected, hovered, setHovered,
       threshold, setThreshold, filters, setFilters,
       filtered, uploadFile, refreshProjects,

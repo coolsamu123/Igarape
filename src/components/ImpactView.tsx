@@ -34,7 +34,7 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function ImpactView() {
-  const { projects, setSelected } = useProjectContext();
+  const { projects, filtered: globalFilteredProjects, filters, setSelected } = useProjectContext();
   const [impacts, setImpacts] = useState<ProjectImpact[]>([]);
   const [status, setStatus] = useState<ImpactAnalysisStatus | null>(null);
   const [stats, setStats] = useState<{ total: number; bySeverity: Record<string, number>; byType: Record<string, number>; byDirection: Record<string, number> } | null>(null);
@@ -93,9 +93,38 @@ export default function ImpactView() {
   };
 
   const filtered = useMemo(() => {
+    // Create a Set of globally filtered project IDs for O(1) lookups
+    const globalFilteredIds = new Set(globalFilteredProjects.map(p => p.projectId));
+
     return impacts.filter(imp => {
+      // Respect the global ProjectContext filters (Toolbar filters)
+      // An impact is shown ONLY IF at least one of the projects involved (source OR target)
+      // is currently visible in the global filter (e.g. DDS = 'GIO')
+      let isSourceVisible = globalFilteredIds.has(imp.sourceProjectId);
+      let isTargetVisible = globalFilteredIds.has(imp.targetProjectId);
+      
+      // Special case for GIO Services pseudo-project
+      if (imp.targetProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
+        isTargetVisible = true;
+      }
+      if (imp.sourceProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
+        isSourceVisible = true;
+      }
+      
+      if (!isSourceVisible && !isTargetVisible) return false;
+
+      // Apply local impact-specific filters
       if (filterSeverity !== 'All' && imp.severity !== filterSeverity) return false;
-      if (filterType !== 'All' && imp.impactType !== filterType) return false;
+      
+      if (filterType !== 'All') {
+        if (filterType.startsWith('GIO_')) {
+          const svc = filterType.replace('GIO_', '');
+          if (!imp.gioServices?.includes(svc)) return false;
+        } else {
+          if (imp.impactType !== filterType) return false;
+        }
+      }
+      
       if (filterProject) {
         const s = filterProject.toLowerCase();
         const srcName = projects.find(p => p.projectId === imp.sourceProjectId)?.name || '';
@@ -108,7 +137,7 @@ export default function ImpactView() {
       }
       return true;
     });
-  }, [impacts, filterSeverity, filterType, filterProject, projects]);
+  }, [impacts, filterSeverity, filterType, filterProject, projects, globalFilteredProjects, filters.dds]);
 
   const projectMap = useMemo(() => {
     const m = new Map<string, { name: string; dds: string }>();
@@ -116,10 +145,14 @@ export default function ImpactView() {
     return m;
   }, [projects]);
 
-  const impactTypes = useMemo(() =>
-    ['All', ...Array.from(new Set(impacts.map(i => i.impactType))).sort()],
-    [impacts]
-  );
+  const filterOptions = useMemo(() => {
+    const types = new Set(impacts.map(i => i.impactType));
+    const gioSvc = new Set(impacts.flatMap(i => i.gioServices || []));
+    return {
+      impactTypes: Array.from(types).sort(),
+      gioServices: Array.from(gioSvc).sort(),
+    };
+  }, [impacts]);
 
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
@@ -204,11 +237,23 @@ export default function ImpactView() {
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
           >
-            {impactTypes.map(t => (
-              <option key={t} value={t}>{t === 'All' ? 'All Types' : TYPE_LABELS[t] || t}</option>
-            ))}
+            <option value="All">All Types & Services</option>
+            {filterOptions.impactTypes.length > 0 && (
+              <optgroup label="Impact Types">
+                {filterOptions.impactTypes.map(t => (
+                  <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>
+                ))}
+              </optgroup>
+            )}
+            {filterOptions.gioServices.length > 0 && (
+              <optgroup label="GIO Services">
+                {filterOptions.gioServices.map(s => (
+                  <option key={`GIO_${s}`} value={`GIO_${s}`}>{s}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
           <input
             type="text"
@@ -232,7 +277,14 @@ export default function ImpactView() {
 
             return (
               <div key={imp.id}
-                className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-colors"
+                onClick={() => {
+                  if (imp.sourceProjectId !== 'GIO_SERVICES') {
+                    setSelected(imp.sourceProjectId);
+                  } else if (imp.targetProjectId !== 'GIO_SERVICES') {
+                    setSelected(imp.targetProjectId);
+                  }
+                }}
+                className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-colors cursor-pointer"
               >
                 <div className="flex items-start gap-3">
                   {/* Severity dot */}
@@ -245,13 +297,18 @@ export default function ImpactView() {
                     <div className="flex items-center gap-2 flex-wrap mb-1.5">
                       {/* Source */}
                       <button
-                        onClick={() => setSelected(imp.sourceProjectId)}
-                        className="text-sm font-semibold text-gray-100 hover:text-blue-300 transition-colors text-left"
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          if (imp.sourceProjectId !== 'GIO_SERVICES') {
+                            setSelected(imp.sourceProjectId);
+                          }
+                        }}
+                        className={`text-sm font-semibold transition-colors text-left ${imp.sourceProjectId === 'GIO_SERVICES' ? 'text-purple-400 cursor-default' : 'text-gray-100 hover:text-blue-300'}`}
                       >
-                        <span className="text-[10px] font-mono mr-1" style={{ color: getDDSColor(src?.dds || '') }}>
-                          {imp.sourceProjectId.replace('PRJ00', '')}
+                        <span className="text-[10px] font-mono mr-1" style={{ color: imp.sourceProjectId === 'GIO_SERVICES' ? '#c084fc' : getDDSColor(src?.dds || '') }}>
+                          {imp.sourceProjectId === 'GIO_SERVICES' ? 'GIO' : imp.sourceProjectId.replace('PRJ00', '')}
                         </span>
-                        {src?.name || imp.sourceProjectId}
+                        {imp.sourceProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : src?.name || imp.sourceProjectId}
                       </button>
 
                       {/* Arrow with direction */}
@@ -261,13 +318,18 @@ export default function ImpactView() {
 
                       {/* Target */}
                       <button
-                        onClick={() => setSelected(imp.targetProjectId)}
-                        className="text-sm font-semibold text-gray-100 hover:text-blue-300 transition-colors text-left"
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          if (imp.targetProjectId !== 'GIO_SERVICES') {
+                            setSelected(imp.targetProjectId);
+                          }
+                        }}
+                        className={`text-sm font-semibold transition-colors text-left ${imp.targetProjectId === 'GIO_SERVICES' ? 'text-purple-400 cursor-default' : 'text-gray-100 hover:text-blue-300'}`}
                       >
-                        <span className="text-[10px] font-mono mr-1" style={{ color: getDDSColor(tgt?.dds || '') }}>
-                          {imp.targetProjectId.replace('PRJ00', '')}
+                        <span className="text-[10px] font-mono mr-1" style={{ color: imp.targetProjectId === 'GIO_SERVICES' ? '#c084fc' : getDDSColor(tgt?.dds || '') }}>
+                          {imp.targetProjectId === 'GIO_SERVICES' ? 'GIO' : imp.targetProjectId.replace('PRJ00', '')}
                         </span>
-                        {tgt?.name || imp.targetProjectId}
+                        {imp.targetProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : tgt?.name || imp.targetProjectId}
                       </button>
                     </div>
 
@@ -275,25 +337,35 @@ export default function ImpactView() {
                     <div className="text-xs text-gray-400 leading-relaxed">{imp.explanation}</div>
 
                     {/* Badges */}
-                    <div className="flex gap-1.5 mt-2">
-                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold"
+                    <div className="flex gap-1.5 mt-2 flex-wrap">
+                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
                         style={{ background: `${sevColor}22`, color: sevColor }}>
                         {imp.severity}
                       </span>
-                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-800 text-gray-400">
+                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-800 text-gray-400 shrink-0">
                         {TYPE_LABELS[imp.impactType] || imp.impactType}
                       </span>
                       {src?.dds && (
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold"
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
                           style={{ background: `${getDDSColor(src.dds)}22`, color: getDDSColor(src.dds) }}>
                           {src.dds}
                         </span>
                       )}
                       {tgt?.dds && tgt.dds !== src?.dds && (
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold"
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
                           style={{ background: `${getDDSColor(tgt.dds)}22`, color: getDDSColor(tgt.dds) }}>
                           {tgt.dds}
                         </span>
+                      )}
+                      {imp.gioServices && imp.gioServices.length > 0 && (
+                        <>
+                          <div className="w-px h-4 bg-gray-700 self-center mx-1" />
+                          {imp.gioServices.map(svc => (
+                            <span key={svc} className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-900/30 text-purple-300 border border-purple-800/50 shrink-0">
+                              {svc}
+                            </span>
+                          ))}
+                        </>
                       )}
                     </div>
                   </div>

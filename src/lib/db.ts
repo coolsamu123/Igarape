@@ -53,7 +53,8 @@ function initSchema(db: Database.Database) {
       year            INTEGER,
       month           INTEGER,
       uploaded_at     TEXT DEFAULT (datetime('now')),
-      batch_id        TEXT DEFAULT ''
+      batch_id        TEXT DEFAULT '',
+      services        TEXT DEFAULT '[]'
     );
 
     CREATE INDEX IF NOT EXISTS idx_projects_project_id ON projects(project_id);
@@ -99,6 +100,7 @@ function initSchema(db: Database.Database) {
       explanation TEXT DEFAULT '',
       batch_id TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now')),
+      gio_services TEXT DEFAULT '[]',
       UNIQUE(source_project_id, target_project_id, impact_type)
     );
 
@@ -106,6 +108,17 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_impact_target ON projects_impact(target_project_id);
     CREATE INDEX IF NOT EXISTS idx_impact_batch ON projects_impact(batch_id);
   `);
+
+  try {
+    db.exec('ALTER TABLE projects_impact ADD COLUMN gio_services TEXT DEFAULT "[]"');
+  } catch {
+    // Ignore if column already exists
+  }
+  try {
+    db.exec('ALTER TABLE projects ADD COLUMN services TEXT DEFAULT "[]"');
+  } catch {
+    // Ignore if column already exists
+  }
 }
 
 export function closeDb() {
