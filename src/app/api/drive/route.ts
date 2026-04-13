@@ -6,6 +6,7 @@ import {
   getDriveStatus,
   getAllDocumentTexts,
   getProjectLocalPath,
+  resetDriveData,
 } from '@/lib/drive-engine';
 import { getDb } from '@/lib/db';
 
@@ -44,6 +45,16 @@ export async function POST(request: NextRequest) {
     if (action === 'status') {
       const status = getDriveStatus();
       return NextResponse.json({ status });
+    }
+
+    if (action === 'delete_everything') {
+      try {
+        resetDriveData();
+        return NextResponse.json({ message: 'All drive data deleted successfully', status: getDriveStatus() });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
     }
 
     if (action === 'start') {
@@ -105,12 +116,6 @@ export async function POST(request: NextRequest) {
       
       db.prepare('UPDATE projects SET link_folder = ? WHERE project_id = ?').run(newLinkFolder, body.projectId);
 
-      // Trigger download for this project
-      const status = getDriveStatus();
-      if (!status.isRunning) {
-        runDriveDownloadSingle(body.projectId).catch(() => {});
-      }
-
       return NextResponse.json({ message: 'Link added successfully' });
     }
 
@@ -119,19 +124,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Missing url' }, { status: 400 });
       }
 
-      const project = await discoverAndAddProjectFromDrive(body.url);
-      
-      // Auto-start download for this newly discovered project
-      const status = getDriveStatus();
-      if (!status.isRunning && project) {
-        runDriveDownloadSingle(project.projectId).catch((err) => {
-           console.error('Auto download failed:', err);
-        });
-      }
+      const result = await discoverAndAddProjectFromDrive(body.url);
 
       return NextResponse.json({
-        message: 'Project discovered and added',
-        project,
+        message: `Discovered and added ${result.added.length} project(s)`,
+        added: result.added,
       });
     }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "Stopping CIOO Project Intelligence..."
+echo "Stopping Strom — Portfolio Intelligence..."
 # Kill any running Next.js dev server
 pkill -f "next dev" 2>/dev/null
 pkill -f "next-server" 2>/dev/null

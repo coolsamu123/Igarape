@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { extractTags } from '@/lib/similarity';
-import type { CIOOProject, ProjectSummary } from '@/lib/types';
+import type { CIOOProject } from '@/lib/types';
+import { fetchProjectSummariesForViews } from '@/lib/impact-engine';
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,92 +15,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ projects: rows.map(mapRowToProject) });
     }
 
-    // Default: return deduplicated project summaries
-    // Try to join with project_goals if the table exists (it's created by the subapp)
-    let rows: DbRow[] = [];
-    try {
-      rows = db.prepare(`
-        SELECT 
-          p.*,
-          g.digital_technologies,
-          g.change_management,
-          g.security_impacts,
-          g.regional_impacts,
-          g.ia_embedded,
-          g.gio_sl_dds_impacts,
-          g.dds_gio_workload,
-          g.business_apps_cis
-        FROM projects p
-        LEFT JOIN project_goals g ON p.project_id = g.project_id
-        WHERE p.project_id != ''
-        ORDER BY p.project_id, p.review_date DESC
-      `).all() as DbRow[];
-    } catch {
-      // Fallback if project_goals doesn't exist yet
-      rows = db.prepare(`
-        SELECT * FROM projects
-        WHERE project_id != ''
-        ORDER BY project_id, review_date DESC
-      `).all() as DbRow[];
-    }
+    // Default: delegate to the Impact engine so the views see the same set as Impact
+    const summaries = fetchProjectSummariesForViews();
 
-    const grouped = new Map<string, DbRow[]>();
-    for (const row of rows) {
-      const key = row.project_id;
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key)!.push(row);
-    }
-
-    const summaries: ProjectSummary[] = [];
-    for (const [projectId, entries] of Array.from(grouped.entries())) {
-      const latest = entries[0]; // Already sorted DESC
-      const allDescriptions = entries.map(e => e.description).filter(Boolean);
-      const allRemarks = entries.map(e => e.remarks).filter(Boolean);
-
-      const bestDescription = allDescriptions[0] || '';
-      const bestRemarks = allRemarks[0] || '';
-
-      const summary: ProjectSummary = {
-        projectId,
-        name: latest.name,
-        dds: latest.dds,
-        currentGate: latest.gate,
-        latestDecision: latest.decision,
-        costKEur: latest.cost_keur,
-        description: bestDescription,
-        remarks: bestRemarks,
-        reviewCount: entries.length,
-        lastReviewDate: latest.review_date,
-        linkPositions: entries.find(e => e.link_positions)?.link_positions || '',
-        linkFolder: entries.find(e => e.link_folder)?.link_folder || '',
-        linkCIOO: entries.find(e => e.link_cioo)?.link_cioo || '',
-        tags: extractTags({ 
-          name: latest.name, 
-          description: bestDescription, 
-          remarks: bestRemarks,
-          subappText: [latest.digital_technologies, latest.business_apps_cis, latest.security_impacts, latest.ia_embedded].filter(Boolean).join(' ')
-        }),
-        history: entries.map(mapRowToProject),
-
-        digitalTechnologies: latest.digital_technologies,
-        changeManagement: latest.change_management,
-        securityImpacts: latest.security_impacts,
-        regionalImpacts: latest.regional_impacts,
-        iaEmbedded: latest.ia_embedded,
-        gioSlDdsImpacts: latest.gio_sl_dds_impacts,
-        ddsGioWorkload: latest.dds_gio_workload,
-        businessAppsCis: latest.business_apps_cis,
-        subappAnalyzed: !!latest.digital_technologies || !!latest.ia_embedded,
-        services: latest.services ? JSON.parse(latest.services) : [],
-      };
-
-      summaries.push(summary);
-    }
-
-    // Stats
     const stats = {
       totalProjects: summaries.length,
-      totalRows: rows.length,
+      totalRows: summaries.reduce((sum, s) => sum + s.reviewCount, 0),
       byDDS: countBy(summaries, s => s.dds),
       byGate: countBy(summaries, s => s.currentGate),
       byDecision: countBy(summaries, s => s.latestDecision),

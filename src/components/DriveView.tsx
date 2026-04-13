@@ -31,6 +31,16 @@ export default function DriveView() {
   // Filter state for the list
   const [filterText, setFilterText] = useState('');
 
+  type BottomTab = 'links' | 'sheet';
+  const [bottomTab, setBottomTab] = useState<BottomTab>('links');
+
+  const [sheetUrlInput, setSheetUrlInput] = useState('');
+  const [sheetLoading, setSheetLoading] = useState(false);
+  const [sheetError, setSheetError] = useState<string | null>(null);
+  const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
+  const [sheetRows, setSheetRows] = useState<Record<string, string>[]>([]);
+  const [sheetMeta, setSheetMeta] = useState<{ sourceUrl: string; loadedAt: string; rowCount: number } | null>(null);
+
   const loadDriveStatus = async () => {
     try {
       const res = await fetch('/api/drive');
@@ -42,6 +52,20 @@ export default function DriveView() {
 
   useEffect(() => {
     loadDriveStatus();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/drive/sheet');
+        const data = await res.json();
+        if (data.success && data.loaded) {
+          setSheetHeaders(data.headers);
+          setSheetRows(data.rows);
+          setSheetMeta({ sourceUrl: data.sourceUrl, loadedAt: data.loadedAt, rowCount: data.rowCount });
+        }
+      } catch { /* ignore */ }
+    })();
   }, []);
 
   // Poll while running
@@ -143,6 +167,30 @@ export default function DriveView() {
     } catch (e: unknown) {
       setAssocState('error');
       setAssocResult(e instanceof Error ? e.message : 'Failed to add link');
+    }
+  };
+
+  const handleLoadSheet = async () => {
+    const url = sheetUrlInput.trim();
+    if (!url) return;
+    setSheetLoading(true);
+    setSheetError(null);
+    try {
+      const res = await fetch('/api/drive/sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, action: 'load_table' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load sheet');
+      setSheetHeaders(data.headers);
+      setSheetRows(data.rows);
+      setSheetMeta({ sourceUrl: data.sourceUrl, loadedAt: data.loadedAt, rowCount: data.rowCount });
+      setSheetUrlInput('');
+    } catch (e: unknown) {
+      setSheetError(e instanceof Error ? e.message : 'Failed to load sheet');
+    } finally {
+      setSheetLoading(false);
     }
   };
 
@@ -314,20 +362,42 @@ export default function DriveView() {
 
       {/* Projects List */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-800 flex flex-col gap-3 bg-gray-800/50">
-          <div className="flex justify-between items-center">
-            <h3 className="text-md font-bold text-gray-200">
+        <div className="px-5 pt-4 border-b border-gray-800 bg-gray-800/50">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setBottomTab('links')}
+              className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
+                bottomTab === 'links'
+                  ? 'bg-gray-900 text-gray-100 border border-gray-800 border-b-transparent'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
               Projects with Drive Links ({filteredProjectsWithLinks.length})
-            </h3>
+            </button>
+            <button
+              onClick={() => setBottomTab('sheet')}
+              className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
+                bottomTab === 'sheet'
+                  ? 'bg-gray-900 text-gray-100 border border-gray-800 border-b-transparent'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              Projects Table{sheetMeta ? ` (${sheetMeta.rowCount})` : ''}
+            </button>
           </div>
-          <input
-            type="text"
-            placeholder="Filter by project ID, name, or description..."
-            value={filterText}
-            onChange={e => setFilterText(e.target.value)}
-            className="w-full bg-gray-950 border border-gray-700 text-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-          />
         </div>
+        
+        {bottomTab === 'links' && (
+        <div>
+          <div className="px-5 py-4 border-b border-gray-800 flex flex-col gap-3 bg-gray-800/30">
+            <input
+              type="text"
+              placeholder="Filter by project ID, name, or description..."
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+              className="w-full bg-gray-950 border border-gray-700 text-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+            />
+          </div>
         
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -403,6 +473,87 @@ export default function DriveView() {
             </tbody>
           </table>
         </div>
+        </div>
+        )}
+
+        {bottomTab === 'sheet' && (
+          <div>
+            <div className="px-5 py-4 border-b border-gray-800 bg-gray-800/30">
+              <label className="block text-xs text-gray-500 mb-2">
+                Paste a Google Sheet URL. Row 2 is used as the table header. Loading a new sheet overwrites the current table.
+              </label>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="https://docs.google.com/spreadsheets/d/.../edit?gid=..."
+                  value={sheetUrlInput}
+                  onChange={e => setSheetUrlInput(e.target.value)}
+                  className="flex-1 bg-gray-950 border border-gray-800 text-gray-200 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                />
+                <button
+                  onClick={handleLoadSheet}
+                  disabled={!sheetUrlInput.trim() || sheetLoading}
+                  className="px-6 py-2 rounded-lg bg-purple-700 text-white text-sm font-semibold hover:bg-purple-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {sheetLoading ? 'Loading...' : 'Load Sheet'}
+                </button>
+              </div>
+              {sheetError && (
+                <div className="mt-3 text-sm text-red-400 bg-red-900/20 px-3 py-2 rounded border border-red-900/50">
+                  {sheetError}
+                </div>
+              )}
+              {sheetMeta && (
+                <div className="mt-3 text-xs text-gray-500">
+                  Loaded <span className="text-gray-300">{sheetMeta.rowCount}</span> rows from{' '}
+                  <a href={sheetMeta.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">source</a>
+                  {' '}at <span className="text-gray-400">{sheetMeta.loadedAt}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="relative" style={{ maxHeight: '60vh' }}>
+              <div className="overflow-auto" style={{ maxHeight: '60vh' }}>
+                {sheetHeaders.length === 0 ? (
+                  <div className="px-5 py-12 text-center text-gray-500 text-sm">
+                    No sheet loaded yet. Paste a Google Sheet URL above to load the projects table.
+                  </div>
+                ) : (
+                  <table className="text-left text-xs border-collapse" style={{ minWidth: 'max-content' }}>
+                    <thead className="bg-gray-900 text-gray-400 uppercase border-b border-gray-800 sticky top-0 z-10">
+                      <tr>
+                        {sheetHeaders.map(h => (
+                          <th
+                            key={h}
+                            className="px-3 py-2 font-medium whitespace-nowrap border-r border-gray-800 last:border-r-0"
+                            title={h}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800">
+                      {sheetRows.map((row, i) => (
+                        <tr key={i} className="hover:bg-gray-800/30 transition-colors">
+                          {sheetHeaders.map(h => (
+                            <td
+                              key={h}
+                              className="px-3 py-2 text-gray-300 whitespace-nowrap border-r border-gray-800 last:border-r-0 max-w-[320px] overflow-hidden text-ellipsis"
+                              title={row[h] ?? ''}
+                            >
+                              {row[h] ?? ''}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

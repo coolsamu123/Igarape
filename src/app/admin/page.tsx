@@ -233,15 +233,9 @@ export default function AdminPage() {
         background: '#0d1117',
       }}>
         <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
-          <div style={{
-            width: 32, height: 32,
-            background: 'linear-gradient(135deg,#1d4ed8,#7c3aed)',
-            borderRadius: 8,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16,
-          }}>⬡</div>
+          <img src="/icon-192.png" alt="Strom" style={{ width: 32, height: 32, borderRadius: 8 }} />
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.02em' }}>CIOO Project Intelligence</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.02em' }}>Strom — Portfolio Intelligence</div>
             <div style={{ fontSize: 11, color: '#64748b' }}>Administration</div>
           </div>
         </a>

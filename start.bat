@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo   CIOO Project Intelligence
+echo   Strom — Portfolio Intelligence
 echo   Air Liquide IT Portfolio Analytics
 echo ============================================
 echo.

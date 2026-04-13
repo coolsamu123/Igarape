@@ -14,9 +14,10 @@ body {
   color: #e2e8f0;
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #111827; }
-::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 
 .line-clamp-2 {
   display: -webkit-box;
@@ -39,4 +40,8 @@ body {
 
 .animate-fadeIn {
   animation: fadeIn 0.3s ease;
+}
+
+.card-glow:hover {
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.08);
 }

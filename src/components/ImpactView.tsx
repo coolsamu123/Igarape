@@ -20,21 +20,9 @@ const DIRECTION_LABELS: Record<string, string> = {
   requires_coordination: 'Requires coordination',
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  technology_dependency: 'Technology',
-  infrastructure_shared: 'Infrastructure',
-  data_dependency: 'Data',
-  timeline_blocking: 'Timeline',
-  resource_contention: 'Resource',
-  organizational: 'Organizational',
-  platform_shared: 'Platform',
-  vendor_shared: 'Vendor',
-  integration_required: 'Integration',
-  security_dependency: 'Security',
-};
 
 export default function ImpactView() {
-  const { projects, filtered: globalFilteredProjects, filters, setSelected } = useProjectContext();
+  const { projects, filtered: globalFilteredProjects, filters } = useProjectContext();
   const [impacts, setImpacts] = useState<ProjectImpact[]>([]);
   const [status, setStatus] = useState<ImpactAnalysisStatus | null>(null);
   const [stats, setStats] = useState<{ total: number; bySeverity: Record<string, number>; byType: Record<string, number>; byDirection: Record<string, number> } | null>(null);
@@ -42,6 +30,22 @@ export default function ImpactView() {
   const [filterType, setFilterType] = useState('All');
   const [filterProject, setFilterProject] = useState('');
   const [isStarting, setIsStarting] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+
+  type ImpactTab = 'results' | 'preview';
+  const [activeTab, setActiveTab] = useState<ImpactTab>('results');
+
+  interface PreviewData {
+    query: string;
+    columns: string[];
+    rowCount: number;
+    rows: Record<string, unknown>[];
+    groupedRowCount: number;
+    generatedAt: string;
+  }
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -53,8 +57,36 @@ export default function ImpactView() {
     } catch { /* ignore */ }
   }, []);
 
+  const loadPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const res = await fetch('/api/impact/preview');
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load preview');
+      setPreview({
+        query: data.query,
+        columns: data.columns,
+        rowCount: data.rowCount,
+        rows: data.rows,
+        groupedRowCount: data.groupedRowCount,
+        generatedAt: data.generatedAt,
+      });
+    } catch (e: unknown) {
+      setPreviewError(e instanceof Error ? e.message : 'Failed to load preview');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
   // Initial load
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => { loadPreview(); }, [loadPreview]);
+
+  useEffect(() => {
+    if (activeTab === 'preview') loadPreview();
+  }, [activeTab, loadPreview]);
 
   // Poll while running
   useEffect(() => {
@@ -70,13 +102,14 @@ export default function ImpactView() {
         if (data.status) {
           setStatus(data.status);
           if (!data.status.isRunning) {
-            loadData(); // Refresh full data when done
+            loadData();
+            loadPreview();
           }
         }
       } catch { /* ignore */ }
     }, 2000);
     return () => clearInterval(interval);
-  }, [status?.isRunning, loadData]);
+  }, [status?.isRunning, loadData, loadPreview]);
 
   const startAnalysis = async () => {
     setIsStarting(true);
@@ -90,6 +123,29 @@ export default function ImpactView() {
       if (data.status) setStatus(data.status);
     } catch { /* ignore */ }
     setIsStarting(false);
+  };
+
+  const eraseImpacts = async () => {
+    if (status?.isRunning || isClearing) return;
+    const confirmed = window.confirm(
+      `Erase all ${stats?.total ?? impacts.length} stored impacts? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    setIsClearing(true);
+    try {
+      const res = await fetch('/api/impact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear' }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setImpacts([]);
+        setStats({ total: 0, bySeverity: {}, byType: {}, byDirection: {} });
+        if (data.status) setStatus(data.status);
+      }
+    } catch { /* ignore */ }
+    setIsClearing(false);
   };
 
   const filtered = useMemo(() => {
@@ -117,12 +173,8 @@ export default function ImpactView() {
       if (filterSeverity !== 'All' && imp.severity !== filterSeverity) return false;
       
       if (filterType !== 'All') {
-        if (filterType.startsWith('GIO_')) {
-          const svc = filterType.replace('GIO_', '');
-          if (!imp.gioServices?.includes(svc)) return false;
-        } else {
-          if (imp.impactType !== filterType) return false;
-        }
+        const svc = filterType.replace('GIO_', '');
+        if (!imp.gioServices?.includes(svc)) return false;
       }
       
       if (filterProject) {
@@ -156,6 +208,31 @@ export default function ImpactView() {
 
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
+      <div className="flex gap-1 mb-4 border-b border-gray-800">
+        <button
+          onClick={() => setActiveTab('results')}
+          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
+            activeTab === 'results'
+              ? 'bg-gray-900 text-gray-100 border border-gray-800 border-b-transparent'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          Results{stats ? ` (${stats.total})` : ''}
+        </button>
+        <button
+          onClick={() => setActiveTab('preview')}
+          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
+            activeTab === 'preview'
+              ? 'bg-gray-900 text-gray-100 border border-gray-800 border-b-transparent'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          Query Preview{preview ? ` (${preview.rowCount})` : ''}
+        </button>
+      </div>
+
+      {activeTab === 'results' && (
+      <>
       {/* Status / Launch bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
         <div className="flex items-center justify-between mb-4">
@@ -165,13 +242,23 @@ export default function ImpactView() {
               Gemini analyzes ALL projects to identify impact relationships — technology dependencies, shared platforms, timeline blocking, etc.
             </p>
           </div>
-          <button
-            onClick={startAnalysis}
-            disabled={status?.isRunning || isStarting}
-            className="px-5 py-2.5 rounded-lg bg-blue-700 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-          >
-            {status?.isRunning ? 'Running...' : isStarting ? 'Starting...' : impacts.length > 0 ? 'Re-run Analysis' : 'Start Full Analysis'}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={eraseImpacts}
+              disabled={status?.isRunning || isClearing || (stats?.total ?? impacts.length) === 0}
+              className="px-4 py-2.5 rounded-lg bg-red-900/60 text-red-200 text-sm font-semibold hover:bg-red-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed border border-red-800/60"
+              title="Delete all stored impacts from the database"
+            >
+              {isClearing ? 'Erasing...' : 'Erase All'}
+            </button>
+            <button
+              onClick={startAnalysis}
+              disabled={status?.isRunning || isStarting}
+              className="px-5 py-2.5 rounded-lg bg-blue-700 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {status?.isRunning ? 'Running...' : isStarting ? 'Starting...' : impacts.length > 0 ? 'Re-run Analysis' : 'Start Full Analysis'}
+            </button>
+          </div>
         </div>
 
         {/* Progress */}
@@ -239,21 +326,10 @@ export default function ImpactView() {
             onChange={e => setFilterType(e.target.value)}
             className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
           >
-            <option value="All">All Types & Services</option>
-            {filterOptions.impactTypes.length > 0 && (
-              <optgroup label="Impact Types">
-                {filterOptions.impactTypes.map(t => (
-                  <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>
-                ))}
-              </optgroup>
-            )}
-            {filterOptions.gioServices.length > 0 && (
-              <optgroup label="GIO Services">
-                {filterOptions.gioServices.map(s => (
-                  <option key={`GIO_${s}`} value={`GIO_${s}`}>{s}</option>
-                ))}
-              </optgroup>
-            )}
+            <option value="All">All GIO Services</option>
+            {filterOptions.gioServices.map(s => (
+              <option key={`GIO_${s}`} value={`GIO_${s}`}>{s}</option>
+            ))}
           </select>
           <input
             type="text"
@@ -269,106 +345,53 @@ export default function ImpactView() {
 
       {/* Impact list */}
       {filtered.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {filtered.slice(0, 200).map(imp => {
             const src = projectMap.get(imp.sourceProjectId);
             const tgt = projectMap.get(imp.targetProjectId);
             const sevColor = SEVERITY_COLORS[imp.severity] || '#6b7280';
+            const srcName = imp.sourceProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : src?.name || imp.sourceProjectId;
+            const tgtName = imp.targetProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : tgt?.name || imp.targetProjectId;
 
             return (
               <div key={imp.id}
-                onClick={() => {
-                  if (imp.sourceProjectId !== 'GIO_SERVICES') {
-                    setSelected(imp.sourceProjectId);
-                  } else if (imp.targetProjectId !== 'GIO_SERVICES') {
-                    setSelected(imp.targetProjectId);
-                  }
-                }}
-                className="bg-gray-900 border border-gray-800 rounded-lg p-4 hover:border-gray-600 transition-colors cursor-pointer"
+                className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3.5 hover:bg-gray-800/40 hover:border-gray-700 transition-colors"
+                style={{ borderLeftColor: sevColor, borderLeftWidth: '3px' }}
               >
-                <div className="flex items-start gap-3">
-                  {/* Severity dot */}
-                  <div className="mt-1 shrink-0">
-                    <div className="w-3 h-3 rounded-full" style={{ background: sevColor }} title={imp.severity} />
+                {/* Row 1: Direction → Target + badges */}
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ background: sevColor }} />
+                    <span className="text-[13px] font-semibold text-gray-100">
+                      {DIRECTION_LABELS[imp.direction] || imp.direction} → {tgtName}
+                    </span>
                   </div>
-
-                  {/* Source → Target */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                      {/* Source */}
-                      <button
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          if (imp.sourceProjectId !== 'GIO_SERVICES') {
-                            setSelected(imp.sourceProjectId);
-                          }
-                        }}
-                        className={`text-sm font-semibold transition-colors text-left ${imp.sourceProjectId === 'GIO_SERVICES' ? 'text-purple-400 cursor-default' : 'text-gray-100 hover:text-blue-300'}`}
-                      >
-                        <span className="text-[10px] font-mono mr-1" style={{ color: imp.sourceProjectId === 'GIO_SERVICES' ? '#c084fc' : getDDSColor(src?.dds || '') }}>
-                          {imp.sourceProjectId === 'GIO_SERVICES' ? 'GIO' : imp.sourceProjectId.replace('PRJ00', '')}
-                        </span>
-                        {imp.sourceProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : src?.name || imp.sourceProjectId}
-                      </button>
-
-                      {/* Arrow with direction */}
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 shrink-0">
-                        {DIRECTION_LABELS[imp.direction] || imp.direction} →
+                  <div className="flex gap-1.5 shrink-0">
+                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold"
+                      style={{ background: `${sevColor}22`, color: sevColor }}>
+                      {imp.severity}
+                    </span>
+                    {imp.gioServices && imp.gioServices.map(svc => (
+                      <span key={svc} className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-900/30 text-purple-300 border border-purple-800/50">
+                        {svc}
                       </span>
-
-                      {/* Target */}
-                      <button
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          if (imp.targetProjectId !== 'GIO_SERVICES') {
-                            setSelected(imp.targetProjectId);
-                          }
-                        }}
-                        className={`text-sm font-semibold transition-colors text-left ${imp.targetProjectId === 'GIO_SERVICES' ? 'text-purple-400 cursor-default' : 'text-gray-100 hover:text-blue-300'}`}
-                      >
-                        <span className="text-[10px] font-mono mr-1" style={{ color: imp.targetProjectId === 'GIO_SERVICES' ? '#c084fc' : getDDSColor(tgt?.dds || '') }}>
-                          {imp.targetProjectId === 'GIO_SERVICES' ? 'GIO' : imp.targetProjectId.replace('PRJ00', '')}
-                        </span>
-                        {imp.targetProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : tgt?.name || imp.targetProjectId}
-                      </button>
-                    </div>
-
-                    {/* Explanation */}
-                    <div className="text-xs text-gray-400 leading-relaxed">{imp.explanation}</div>
-
-                    {/* Badges */}
-                    <div className="flex gap-1.5 mt-2 flex-wrap">
-                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
-                        style={{ background: `${sevColor}22`, color: sevColor }}>
-                        {imp.severity}
-                      </span>
-                      <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-800 text-gray-400 shrink-0">
-                        {TYPE_LABELS[imp.impactType] || imp.impactType}
-                      </span>
-                      {src?.dds && (
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
-                          style={{ background: `${getDDSColor(src.dds)}22`, color: getDDSColor(src.dds) }}>
-                          {src.dds}
-                        </span>
-                      )}
-                      {tgt?.dds && tgt.dds !== src?.dds && (
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
-                          style={{ background: `${getDDSColor(tgt.dds)}22`, color: getDDSColor(tgt.dds) }}>
-                          {tgt.dds}
-                        </span>
-                      )}
-                      {imp.gioServices && imp.gioServices.length > 0 && (
-                        <>
-                          <div className="w-px h-4 bg-gray-700 self-center mx-1" />
-                          {imp.gioServices.map(svc => (
-                            <span key={svc} className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-900/30 text-purple-300 border border-purple-800/50 shrink-0">
-                              {svc}
-                            </span>
-                          ))}
-                        </>
-                      )}
-                    </div>
+                    ))}
                   </div>
+                </div>
+
+                {/* Row 2: Source project name + ID */}
+                <div className="flex items-center gap-2 mb-1.5 pl-[18px]">
+                  {srcName !== imp.sourceProjectId && (
+                    <span className="text-xs text-gray-400">{srcName}</span>
+                  )}
+                  <span className="text-[10px] font-mono" style={{ color: getDDSColor(src?.dds || '') }}>
+                    {imp.sourceProjectId === 'GIO_SERVICES' ? '' : imp.sourceProjectId}
+                  </span>
+                </div>
+
+                {/* Row 3: Full explanation */}
+                <div className="text-xs text-gray-300 leading-relaxed pl-[18px]">
+                  {imp.explanation}
                 </div>
               </div>
             );
@@ -387,6 +410,94 @@ export default function ImpactView() {
           <div className="text-4xl mb-4">→</div>
           <div className="text-lg font-semibold text-gray-300 mb-2">No impact analysis yet</div>
           <div className="text-sm">Click &ldquo;Start Full Analysis&rdquo; to let Gemini analyze all projects</div>
+        </div>
+      )}
+      </>
+      )}
+
+      {activeTab === 'preview' && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-800 bg-gray-800/30">
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div>
+                <h2 className="text-lg font-bold text-gray-100">Query Preview</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Exact rows pulled from the SELECT that feeds the impact analysis engine. Auto-refreshes when a run completes.
+                </p>
+              </div>
+              <button
+                onClick={loadPreview}
+                disabled={previewLoading}
+                className="px-4 py-2 rounded-lg bg-gray-800 text-gray-200 text-sm font-semibold hover:bg-gray-700 transition-colors disabled:opacity-40 shrink-0"
+              >
+                {previewLoading ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+            {preview && (
+              <div className="text-xs text-gray-500 flex gap-4 flex-wrap">
+                <span><span className="text-gray-300 font-mono">{preview.rowCount}</span> raw rows</span>
+                <span>→ <span className="text-gray-300 font-mono">{preview.groupedRowCount}</span> projects sent to Gemini (after grouping)</span>
+                <span>Loaded: <span className="text-gray-400">{preview.generatedAt}</span></span>
+              </div>
+            )}
+            {previewError && (
+              <div className="mt-3 text-sm text-red-400 bg-red-900/20 px-3 py-2 rounded border border-red-900/50">
+                {previewError}
+              </div>
+            )}
+          </div>
+
+          {preview && (
+            <details className="border-b border-gray-800 bg-gray-950/50">
+              <summary className="px-5 py-2 text-xs text-gray-400 cursor-pointer hover:text-gray-200 select-none">
+                View SQL source
+              </summary>
+              <pre className="px-5 py-3 text-[11px] text-gray-300 font-mono whitespace-pre-wrap overflow-x-auto">{preview.query}</pre>
+            </details>
+          )}
+
+          <div className="overflow-auto" style={{ maxHeight: '65vh' }}>
+            {preview && preview.columns.length > 0 ? (
+              <table className="text-left text-xs border-collapse" style={{ minWidth: 'max-content' }}>
+                <thead className="bg-gray-900 text-gray-400 uppercase border-b border-gray-800 sticky top-0 z-10">
+                  <tr>
+                    {preview.columns.map(c => (
+                      <th
+                        key={c}
+                        className="px-3 py-2 font-medium whitespace-nowrap border-r border-gray-800 last:border-r-0"
+                        title={c}
+                      >
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {preview.rows.map((row, i) => (
+                    <tr key={i} className="hover:bg-gray-800/30 transition-colors">
+                      {preview.columns.map(c => {
+                        const v = row[c];
+                        const display = v === null || v === undefined ? '' : String(v);
+                        return (
+                          <td
+                            key={c}
+                            className="px-3 py-2 text-gray-300 whitespace-nowrap border-r border-gray-800 last:border-r-0 max-w-[320px] overflow-hidden text-ellipsis"
+                            title={display}
+                          >
+                            {display}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="px-5 py-12 text-center text-gray-500 text-sm">
+                {previewLoading ? 'Loading query preview...' : 'No rows returned by the query.'}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

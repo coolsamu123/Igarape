@@ -108,6 +108,19 @@ export default function GoalsView() {
     window.open('/api/goals?action=export', '_blank');
   };
 
+  const handleEraseAll = async () => {
+    if (!confirm('Are you sure you want to delete all extracted goals? This cannot be undone.')) return;
+    try {
+      await fetch('/api/goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_everything' }),
+      });
+      fetchStatus();
+      fetchGoals();
+    } catch { /* ignore */ }
+  };
+
   const regions = [...new Set(goals.map(g => g.region).filter(Boolean))].sort();
   const filtered = goals.filter(g => {
     if (search) {
@@ -137,6 +150,13 @@ export default function GoalsView() {
             </p>
           </div>
           <div className="flex gap-3">
+            <button
+              onClick={handleEraseAll}
+              disabled={status?.isRunning}
+              className="px-4 py-2 text-sm bg-red-900/30 text-red-400 border border-red-800 rounded-md hover:bg-red-900/50 transition-colors disabled:opacity-50"
+            >
+              Erase All
+            </button>
             <button
               onClick={exportCsv}
               disabled={goals.length === 0}

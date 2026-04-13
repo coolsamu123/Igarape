@@ -1,201 +1,249 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useProjectContext } from '@/context/ProjectContext';
 import { getDDSColor, getDecisionColor, getGateColor } from '@/lib/constants';
 
+/** Normalize DD/MM/YYYY or YYYY-MM-DD to a Date-sortable ISO string (YYYY-MM-DD). */
+function normalizeDate(raw: string): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  // DD/MM/YYYY
+  const slash = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) {
+    return `${slash[3]}-${slash[2].padStart(2, '0')}-${slash[1].padStart(2, '0')}`;
+  }
+  // Already ISO-ish
+  if (/^\d{4}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
+  return '';
+}
+
+function formatDisplayDate(iso: string): string {
+  if (!iso || iso.length < 10) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function monthLabel(isoMonth: string): string {
+  const [y, m] = isoMonth.split('-');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[parseInt(m) - 1]} ${y}`;
+}
+
+interface TimelineProject {
+  projectId: string;
+  name: string;
+  dds: string;
+  currentGate: string;
+  latestDecision: string;
+  reviewDate: string;     // normalized ISO
+  reviewDateRaw: string;  // display
+  costKEur: number | null;
+  description: string;
+}
+
 export default function TimelineView() {
-  const { filtered, setSelected } = useProjectContext();
+  const { filtered, selected, setSelected } = useProjectContext();
 
-  const { months, projectsByDDS } = useMemo(() => {
-    // Generate months from 2018-01 to 2026-06
-    const months: string[] = [];
-    for (let y = 2018; y <= 2026; y++) {
-      for (let m = 1; m <= 12; m++) {
-        months.push(`${y}-${String(m).padStart(2, '0')}`);
-      }
+  const [filterDDS, setFilterDDS] = useState('All');
+  const [filterGate, setFilterGate] = useState('All');
+  const [filterDecision, setFilterDecision] = useState('All');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+
+  const { projects, grouped, monthKeys, ddsOptions, gateOptions, decisionOptions } = useMemo(() => {
+    const projects: TimelineProject[] = filtered
+      .map(p => {
+        const isoDate = normalizeDate(p.lastReviewDate);
+        return {
+          projectId: p.projectId,
+          name: p.name,
+          dds: p.dds,
+          currentGate: p.currentGate,
+          latestDecision: p.latestDecision,
+          reviewDate: isoDate,
+          reviewDateRaw: isoDate ? formatDisplayDate(isoDate) : '',
+          costKEur: p.costKEur,
+          description: p.description,
+        };
+      })
+      .filter(p => {
+        if (!p.reviewDate) return false;
+        if (filterDDS !== 'All' && p.dds !== filterDDS) return false;
+        if (filterGate !== 'All' && p.currentGate !== filterGate) return false;
+        if (filterDecision !== 'All' && p.latestDecision !== filterDecision) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const cmp = a.reviewDate.localeCompare(b.reviewDate);
+        return sortOrder === 'desc' ? -cmp : cmp;
+      });
+
+    // Group by month
+    const grouped = new Map<string, TimelineProject[]>();
+    for (const p of projects) {
+      const month = p.reviewDate.slice(0, 7); // YYYY-MM
+      if (!grouped.has(month)) grouped.set(month, []);
+      grouped.get(month)!.push(p);
     }
 
-    // Find actual date range
-    const dates = filtered
-      .map(p => p.lastReviewDate)
-      .filter(d => d && d.length >= 7)
-      .map(d => d.slice(0, 7))
-      .sort();
+    const monthKeys = Array.from(grouped.keys()).sort((a, b) => {
+      const cmp = a.localeCompare(b);
+      return sortOrder === 'desc' ? -cmp : cmp;
+    });
 
-    const minDate = dates[0] || '2020-01';
-    const maxDate = dates[dates.length - 1] || '2026-01';
+    const ddsOptions = Array.from(new Set(filtered.map(p => p.dds).filter(Boolean))).sort();
+    const gateOptions = Array.from(new Set(filtered.map(p => p.currentGate).filter(Boolean))).sort();
+    const decisionOptions = Array.from(new Set(filtered.map(p => p.latestDecision).filter(Boolean))).sort();
 
-    // Filter months to actual range +/- buffer
-    const displayMonths = months.filter(m => m >= minDate && m <= maxDate);
-
-    // Group by DDS
-    const grouped = new Map<string, typeof filtered>();
-    for (const p of filtered) {
-      const key = p.dds || '(none)';
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key)!.push(p);
-    }
-
-    return {
-      months: displayMonths,
-      projectsByDDS: Array.from(grouped.entries()).sort((a, b) => b[1].length - a[1].length),
-    };
-  }, [filtered]);
-
-  const cellW = 28;
-  const toIdx = (dateStr: string) => {
-    const m = dateStr?.slice(0, 7);
-    return months.indexOf(m);
-  };
-
-  // Current month
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const todayIdx = months.indexOf(currentMonth);
+    return { projects, grouped, monthKeys, ddsOptions, gateOptions, decisionOptions };
+  }, [filtered, filterDDS, filterGate, filterDecision, sortOrder]);
 
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
-      <div className="text-[13px] text-gray-500 mb-5">
-        Project review timeline by DDS — each bar shows when a project was reviewed at CIOO
-      </div>
-
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: months.length * cellW + 220, position: 'relative' }}>
-          {/* Month headers */}
-          <div className="flex" style={{ marginLeft: 220, marginBottom: 8 }}>
-            {months.map((m) => {
-              const [y, mo] = m.split('-');
-              return (
-                <div key={m}
-                  className="shrink-0 text-center"
-                  style={{
-                    width: cellW,
-                    fontSize: 9,
-                    color: mo === '01' ? '#94a3b8' : '#475569',
-                    borderLeft: mo === '01' ? '1px solid #374151' : 'none',
-                    paddingLeft: 2,
-                  }}
-                >
-                  {mo === '01' ? y : parseInt(mo) % 3 === 1
-                    ? ['', 'Jan', '', 'Mar', 'Apr', '', 'Jun', 'Jul', '', 'Sep', 'Oct', '', 'Dec'][parseInt(mo)] || ''
-                    : ''}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* DDS groups */}
-          {projectsByDDS.map(([dds, projects]) => (
-            <div key={dds}>
-              <div className="text-[10px] font-bold tracking-widest mb-1 mt-4 pl-1"
-                style={{ color: getDDSColor(dds) }}>
-                ● {dds.toUpperCase()} ({projects.length})
-              </div>
-
-              {projects.slice(0, 30).map(p => {
-                const color = getDDSColor(p.dds);
-
-                // Show all review dates from history
-                const reviewDots = (p.history || [])
-                  .map(h => ({ idx: toIdx(h.reviewDate), gate: h.gate, decision: h.decision }))
-                  .filter(d => d.idx >= 0);
-
-                return (
-                  <div key={p.projectId} className="flex items-center mb-1" style={{ height: 26 }}>
-                    {/* Project label */}
-                    <div className="flex items-center gap-2 shrink-0" style={{ width: 220, paddingRight: 12 }}>
-                      <span className="text-[10px] font-mono shrink-0" style={{ color, width: 70 }}>
-                        {p.projectId.replace('PRJ00', '')}
-                      </span>
-                      <span className="text-[11px] text-gray-200 whitespace-nowrap overflow-hidden text-ellipsis">
-                        {p.name}
-                      </span>
-                    </div>
-
-                    {/* Timeline bar */}
-                    <div className="relative flex-1" style={{ height: '100%' }}>
-                      {/* Grid lines */}
-                      {months.map((m, i) => (
-                        <div key={m} className="absolute top-0 bottom-0"
-                          style={{
-                            left: i * cellW,
-                            width: cellW,
-                            borderRight: '1px solid #1a2435',
-                            background: i % 6 === 0 ? '#0d1117' : 'transparent',
-                          }}
-                        />
-                      ))}
-
-                      {/* Review dots */}
-                      {reviewDots.map((dot, di) => (
-                        <div key={di}
-                          onClick={() => setSelected(p.projectId)}
-                          className="absolute cursor-pointer group"
-                          style={{
-                            left: dot.idx * cellW + cellW / 2 - 5,
-                            top: 3,
-                            width: 10,
-                            height: 10,
-                          }}
-                        >
-                          {/* Dot */}
-                          <div className="w-full h-full rounded-full border"
-                            style={{
-                              background: getDecisionColor(dot.decision),
-                              borderColor: color,
-                            }}
-                          />
-                          {/* Gate label */}
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-[7px] font-bold"
-                            style={{ color: getGateColor(dot.gate) }}>
-                            G{dot.gate}
-                          </div>
-                          {/* Tooltip */}
-                          <div className="hidden group-hover:block absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-gray-800 rounded px-2 py-1 text-[9px] text-gray-200 whitespace-nowrap z-10 border border-gray-700">
-                            Gate {dot.gate} · {dot.decision || 'Pending'}
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Connection line between dots */}
-                      {reviewDots.length > 1 && (() => {
-                        const sorted = [...reviewDots].sort((a, b) => a.idx - b.idx);
-                        const first = sorted[0].idx;
-                        const last = sorted[sorted.length - 1].idx;
-                        return (
-                          <div className="absolute"
-                            style={{
-                              left: first * cellW + cellW / 2,
-                              width: (last - first) * cellW,
-                              top: 7,
-                              height: 2,
-                              background: `${color}44`,
-                              borderRadius: 1,
-                            }}
-                          />
-                        );
-                      })()}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-
-          {/* Today line */}
-          {todayIdx >= 0 && (
-            <div className="absolute top-0 bottom-0 pointer-events-none"
-              style={{
-                left: 220 + todayIdx * cellW,
-                width: 2,
-                background: '#ef4444',
-                opacity: 0.5,
-              }}
-            />
-          )}
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-lg font-bold text-gray-100">Review Timeline</h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {projects.length} projects across {monthKeys.length} months
+          </p>
         </div>
+        <button
+          onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')}
+          className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+        >
+          {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+        </button>
       </div>
+
+      {/* Filters */}
+      <div className="flex gap-3 mb-6 flex-wrap">
+        <select
+          value={filterDDS}
+          onChange={e => setFilterDDS(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+        >
+          <option value="All">All DDS</option>
+          {ddsOptions.map(d => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+        <select
+          value={filterGate}
+          onChange={e => setFilterGate(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+        >
+          <option value="All">All Gates</option>
+          {gateOptions.map(g => <option key={g} value={g}>Gate {g}</option>)}
+        </select>
+        <select
+          value={filterDecision}
+          onChange={e => setFilterDecision(e.target.value)}
+          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+        >
+          <option value="All">All Decisions</option>
+          {decisionOptions.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </div>
+
+      {/* Timeline */}
+      {projects.length === 0 ? (
+        <div className="text-center text-gray-500 py-20">
+          <div className="text-lg font-semibold text-gray-300 mb-2">No projects match the current filters</div>
+          <div className="text-sm">Try adjusting the filters above</div>
+        </div>
+      ) : (
+        <div className="relative">
+          {/* Vertical line */}
+          <div className="absolute left-[120px] top-0 bottom-0 w-px bg-gray-800" />
+
+          {monthKeys.map(month => {
+            const items = grouped.get(month)!;
+            const now = new Date();
+            const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const isCurrent = month === currentMonth;
+
+            return (
+              <div key={month} className="mb-8">
+                {/* Month header */}
+                <div className="flex items-center mb-4">
+                  <div className="w-[120px] shrink-0 text-right pr-5">
+                    <div className={`text-sm font-bold ${isCurrent ? 'text-blue-400' : 'text-gray-200'}`}>
+                      {monthLabel(month)}
+                    </div>
+                    <div className="text-[10px] text-gray-500">{items.length} review{items.length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div className={`w-3 h-3 rounded-full shrink-0 -ml-[6px] z-10 border-2 border-[#0a0e1a] ${isCurrent ? 'bg-blue-500' : 'bg-gray-600'}`} />
+                  <div className={`flex-1 h-px ml-4 ${isCurrent ? 'bg-blue-500/30' : 'bg-gray-800'}`} />
+                </div>
+
+                {/* Compact project rows for this month */}
+                <div className="ml-[140px] space-y-1">
+                  {items.map(p => {
+                    const ddsColor = getDDSColor(p.dds);
+                    const isSelected = selected === p.projectId;
+
+                    return (
+                      <div
+                        key={`${p.projectId}-${p.reviewDate}`}
+                        onClick={() => setSelected(isSelected ? null : p.projectId)}
+                        className={`flex items-center gap-2 bg-gray-900/60 border border-gray-800/60 rounded-lg px-3 py-1.5 hover:bg-gray-800/50 hover:border-gray-700 transition-colors cursor-pointer
+                          ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : ''}`}
+                        style={{ borderLeftColor: ddsColor, borderLeftWidth: '3px' }}
+                      >
+                        {/* Date */}
+                        <span className="text-[10px] text-gray-500 font-mono w-[72px] shrink-0">
+                          {p.reviewDateRaw}
+                        </span>
+
+                        {/* Project ID */}
+                        <span className="text-[10px] font-mono font-semibold shrink-0 w-[90px]" style={{ color: ddsColor }}>
+                          {p.projectId}
+                        </span>
+
+                        {/* Gate badge */}
+                        {p.currentGate ? (
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0"
+                            style={{ background: `${getGateColor(p.currentGate)}20`, color: getGateColor(p.currentGate) }}
+                          >
+                            G{p.currentGate}
+                          </span>
+                        ) : <span className="w-6 shrink-0" />}
+
+                        {/* Decision badge */}
+                        {p.latestDecision ? (
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0"
+                            style={{ background: `${getDecisionColor(p.latestDecision)}22`, color: getDecisionColor(p.latestDecision) }}
+                          >
+                            {p.latestDecision}
+                          </span>
+                        ) : <span className="w-10 shrink-0" />}
+
+                        {/* Name */}
+                        <span className="text-[11px] text-gray-300 truncate flex-1 min-w-0">
+                          {p.name && p.name !== p.projectId ? p.name : ''}
+                        </span>
+
+                        {/* DDS */}
+                        {p.dds && (
+                          <span
+                            className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0"
+                            style={{ background: `${ddsColor}18`, color: ddsColor }}
+                          >
+                            {p.dds}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

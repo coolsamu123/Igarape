@@ -1,4 +1,4 @@
-# CIOO Project Intelligence — Industrialization Plan
+# Strom — Portfolio Intelligence — Industrialization Plan
 
 ## Overview
 

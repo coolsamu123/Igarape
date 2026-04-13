@@ -3,8 +3,12 @@ import "./globals.css";
 import { ProjectProvider } from "@/context/ProjectContext";
 
 export const metadata: Metadata = {
-  title: "CIOO Project Intelligence",
+  title: "Strom — Portfolio Intelligence",
   description: "Air Liquide IT Portfolio Analytics — Project intersection analysis powered by Gemini AI",
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/apple-icon.png',
+  },
 };
 
 export default function RootLayout({

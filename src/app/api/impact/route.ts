@@ -3,6 +3,7 @@ import {
   runFullImpactAnalysis,
   getImpactStatus,
   getAllImpacts,
+  clearAllImpacts,
 } from '@/lib/impact-engine';
 
 export async function GET() {
@@ -47,6 +48,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status });
     }
 
+    if (action === 'clear') {
+      const status = getImpactStatus();
+      if (status.isRunning) {
+        return NextResponse.json(
+          { error: 'Cannot clear impacts while an analysis is running', status },
+          { status: 409 }
+        );
+      }
+      const deleted = clearAllImpacts();
+      return NextResponse.json({
+        message: `Cleared ${deleted} impacts`,
+        deleted,
+        status: getImpactStatus(),
+      });
+    }
+
     if (action === 'start') {
       const status = getImpactStatus();
       if (status.isRunning) {
@@ -70,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Invalid action. Use "start" or "status".' },
+      { error: 'Invalid action. Use "start", "status", or "clear".' },
       { status: 400 }
     );
   } catch (error: unknown) {

@@ -1,8 +1,8 @@
-# CIOO Project Intelligence — Full Specification & Documentation
+# Strom — Portfolio Intelligence — Full Specification & Documentation
 
 ## Overview
 
-The **CIOO Project Intelligence** platform is an IT Portfolio Analytics web application designed for Air Liquide. It helps identify thematic overlaps, dependencies, security risks, and synergies across hundreds of IT projects.
+The **Strom — Portfolio Intelligence** platform is an IT Portfolio Analytics web application designed for Air Liquide. It helps identify thematic overlaps, dependencies, security risks, and synergies across hundreds of IT projects.
 
 The application achieves this by combining:
 1. **Excel Data**: High-level metadata (costs, dates, decisions, basic descriptions) uploaded via a tracker.

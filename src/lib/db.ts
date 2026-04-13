@@ -107,6 +107,24 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_impact_source ON projects_impact(source_project_id);
     CREATE INDEX IF NOT EXISTS idx_impact_target ON projects_impact(target_project_id);
     CREATE INDEX IF NOT EXISTS idx_impact_batch ON projects_impact(batch_id);
+
+    CREATE TABLE IF NOT EXISTS drive_sheet_meta (
+      id              INTEGER PRIMARY KEY CHECK (id = 1),
+      sheet_id        TEXT NOT NULL,
+      gid             TEXT NOT NULL,
+      source_url      TEXT NOT NULL,
+      headers_json    TEXT NOT NULL,
+      row_count       INTEGER NOT NULL DEFAULT 0,
+      loaded_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS drive_sheet_rows (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      row_index       INTEGER NOT NULL,
+      data_json       TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_drive_sheet_rows_idx ON drive_sheet_rows(row_index);
   `);
 
   try {

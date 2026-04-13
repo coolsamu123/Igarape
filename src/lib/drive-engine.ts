@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import { getDb } from './db';
+import pLimit from 'p-limit';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ const BINARY_DOWNLOADABLE = new Set([
 
 interface DriveDownloadStatus {
   isRunning: boolean;
+  phase: 'idle' | 'scanning' | 'downloading';
   totalUrls: number;
   processedUrls: number;
   totalFiles: number;
@@ -48,6 +50,7 @@ interface DriveDownloadStatus {
 
 let downloadStatus: DriveDownloadStatus = {
   isRunning: false,
+  phase: 'idle',
   totalUrls: 0,
   processedUrls: 0,
   totalFiles: 0,
@@ -230,7 +233,7 @@ async function listFolderFiles(
       const res = await drive.files.list({
         q: `'${folderId}' in parents and trashed = false`,
         fields: 'nextPageToken, files(id, name, mimeType, size, shortcutDetails)',
-        pageSize: 100,
+        pageSize: 1000,
         pageToken,
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
@@ -304,20 +307,40 @@ async function processUrl(
 
     if (mimeType === 'application/vnd.google-apps.folder') {
       const files = await listFolderFiles(drive, actualId);
-      for (const f of files.slice(0, 100)) { // Max 100 files per folder
+      downloadStatus.totalFiles += files.length;
+      downloadStatus.phase = 'downloading';
+      
+      const limit = pLimit(10); // 10 concurrent downloads
+      
+      const downloadPromises = files.map(f => limit(async () => {
         try {
           const result = await downloadFile(drive, f.id, localDir);
-          if (result) results.push(result);
+          if (result) {
+             results.push(result);
+             if (result.localPath) {
+                 downloadStatus.downloadedFiles++;
+             }
+          }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           downloadStatus.errors.push(`${projectId}/${f.name}: ${msg}`);
           downloadStatus.skippedFiles++;
         }
-      }
+      }));
+      
+      await Promise.all(downloadPromises);
+      
     } else {
       try {
+        downloadStatus.totalFiles += 1;
+        downloadStatus.phase = 'downloading';
         const result = await downloadFile(drive, actualId, localDir);
-        if (result) results.push(result);
+        if (result) {
+            results.push(result);
+            if (result.localPath) {
+                downloadStatus.downloadedFiles++;
+            }
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         downloadStatus.errors.push(`${projectId}/${actualId}: ${msg}`);
@@ -345,6 +368,7 @@ export async function runDriveDownloadSingle(projectId: string): Promise<void> {
 
   downloadStatus = {
     isRunning: true,
+    phase: 'scanning',
     totalUrls: 0,
     processedUrls: 0,
     totalFiles: 0,
@@ -409,12 +433,8 @@ export async function runDriveDownloadSingle(projectId: string): Promise<void> {
       try {
         if (!isLoc) {
           const { files } = await processUrl(drive, url, row.project_id, row.name);
-
+          
           for (const f of files) {
-            downloadStatus.totalFiles++;
-            if (f.localPath) {
-              downloadStatus.downloadedFiles++;
-            }
             upsertDoc.run(url, f.textContent, f.localPath ? 'downloaded' : 'metadata');
           }
 
@@ -442,7 +462,7 @@ export async function runDriveDownloadSingle(projectId: string): Promise<void> {
 
 // ─── Discover project from GDrive Link ─────────────────────────────────────
 
-export async function discoverAndAddProjectFromDrive(url: string): Promise<{ projectId: string; name: string } | null> {
+export async function discoverAndAddProjectFromDrive(url: string): Promise<{ added: { projectId: string; name: string }[] }> {
   const drive = getDriveClient();
   const rootId = extractDriveId(url);
   
@@ -450,9 +470,11 @@ export async function discoverAndAddProjectFromDrive(url: string): Promise<{ pro
     throw new Error('Invalid Google Drive URL');
   }
 
-  // Recursive search for a PRJ folder
-  async function searchForProjectFolder(folderId: string, depth: number = 0): Promise<{ id: string; name: string; match: RegExpMatchArray } | null> {
-    if (depth > 5) return null;
+  const foundProjects: { id: string; name: string; projectId: string }[] = [];
+
+  // Recursive search for all PRJ folders
+  async function searchForProjectFolders(folderId: string, depth: number = 0): Promise<void> {
+    if (depth > 5) return;
     
     try {
       // First get this folder's name to see if it's the one
@@ -466,51 +488,56 @@ export async function discoverAndAddProjectFromDrive(url: string): Promise<{ pro
       const prjMatch = name.match(/PRJ[0-9]+/i);
       
       if (prjMatch) {
-        return { id: folderId, name, match: prjMatch };
+        foundProjects.push({ id: folderId, name, projectId: prjMatch[0].toUpperCase() });
+        // If it's a project folder, we don't need to recurse deeper inside it for discovery
+        return;
       }
 
       // If not, list subfolders and recurse
       const res = await drive.files.list({
         q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
         fields: 'files(id, name)',
-        pageSize: 50,
+        pageSize: 100,
         supportsAllDrives: true,
         includeItemsFromAllDrives: true,
       });
 
       for (const f of res.data.files || []) {
         if (!f.id) continue;
-        const found = await searchForProjectFolder(f.id, depth + 1);
-        if (found) return found;
+        await searchForProjectFolders(f.id, depth + 1);
       }
     } catch (err) {
       console.warn('Error searching folder', folderId, err);
     }
-    
-    return null;
   }
 
-  const result = await searchForProjectFolder(rootId);
+  await searchForProjectFolders(rootId);
   
-  if (!result) {
-    throw new Error('Could not find any folder containing PRJXXXXX in its name');
+  if (foundProjects.length === 0) {
+    throw new Error('Could not find any folders containing PRJXXXXX in their names');
   }
-
-  const projectId = result.match[0].toUpperCase();
-  const folderLink = `https://drive.google.com/drive/folders/${result.id}`;
 
   const db = getDb();
+  const added: { projectId: string; name: string }[] = [];
   
-  // Upsert project manually without ON CONFLICT (no UNIQUE constraint)
-  const existing = db.prepare('SELECT id, link_folder FROM projects WHERE project_id = ?').get(projectId) as { link_folder?: string } | undefined;
-  if (existing) {
-    const newLinkFolder = existing.link_folder ? existing.link_folder + ' ' + folderLink : folderLink;
-    db.prepare('UPDATE projects SET link_folder = ? WHERE project_id = ?').run(newLinkFolder, projectId);
-  } else {
-    db.prepare('INSERT INTO projects (project_id, name, link_folder) VALUES (?, ?, ?)').run(projectId, result.name, folderLink);
+  for (const proj of foundProjects) {
+    const folderLink = `https://drive.google.com/drive/folders/${proj.id}`;
+    
+    // Upsert project manually without ON CONFLICT
+    const existing = db.prepare('SELECT id, link_folder FROM projects WHERE project_id = ?').get(proj.projectId) as { link_folder?: string } | undefined;
+    if (existing) {
+      const newLinkFolder = existing.link_folder 
+        ? (existing.link_folder.includes(folderLink) ? existing.link_folder : existing.link_folder + ' ' + folderLink)
+        : folderLink;
+      db.prepare('UPDATE projects SET link_folder = ? WHERE project_id = ?').run(newLinkFolder, proj.projectId);
+    } else {
+      db.prepare('INSERT INTO projects (project_id, name, link_folder) VALUES (?, ?, ?)').run(proj.projectId, proj.name, folderLink);
+    }
+    
+    added.push({ projectId: proj.projectId, name: proj.name });
   }
 
-  return { projectId, name: result.name };
+  return { added };
 }
 
 export async function runDriveDownload(): Promise<void> {
@@ -520,6 +547,7 @@ export async function runDriveDownload(): Promise<void> {
 
   downloadStatus = {
     isRunning: true,
+    phase: 'scanning',
     totalUrls: 0,
     processedUrls: 0,
     totalFiles: 0,
@@ -628,6 +656,7 @@ export async function runDriveDownload(): Promise<void> {
                   }
                 }
               }
+              // Handled by the generic file incrementer logic inside processUrl for uniformity
               downloadStatus.totalFiles++;
               downloadStatus.downloadedFiles++;
               upsertDoc.run(url, textContent.slice(0, 30000), 'local_folder');
@@ -636,13 +665,8 @@ export async function runDriveDownload(): Promise<void> {
             }
           } else {
             const { files } = await processUrl(drive, url, proj.projectId, proj.name);
-
+            
             for (const f of files) {
-              downloadStatus.totalFiles++;
-              if (f.localPath) {
-                downloadStatus.downloadedFiles++;
-              }
-
               // Cache text content in DB
               upsertDoc.run(url, f.textContent, f.localPath ? 'downloaded' : 'metadata');
             }
@@ -727,6 +751,42 @@ export function getProjectLocalPath(projectId: string): string | null {
   if (!match) return null;
 
   return path.join(DRIVE_LOCAL_ROOT, match);
+}
+
+// ─── Reset all downloaded data ────────────────────────────────────────────────
+
+export function resetDriveData(): void {
+  if (downloadStatus.isRunning) {
+    throw new Error('Cannot reset while download is running');
+  }
+
+  // Clear DB cache and drive links from projects
+  const db = getDb();
+  db.exec('DELETE FROM documents_cache');
+  db.exec(`
+    UPDATE projects 
+    SET link_folder = NULL, 
+        link_positions = NULL, 
+        link_cioo = NULL
+  `);
+
+  // Delete local folder
+  if (fs.existsSync(DRIVE_LOCAL_ROOT)) {
+    fs.rmSync(DRIVE_LOCAL_ROOT, { recursive: true, force: true });
+  }
+
+  // Reset status
+  downloadStatus = {
+    isRunning: false,
+    phase: 'idle',
+    totalUrls: 0,
+    processedUrls: 0,
+    totalFiles: 0,
+    downloadedFiles: 0,
+    skippedFiles: 0,
+    errors: [],
+    currentProject: '',
+  };
 }
 
 // ─── Get all downloaded content for Gemini ──────────────────────────────────

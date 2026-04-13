@@ -70,7 +70,7 @@ export function initGoalsSchema() {
       business_apps_cis     TEXT DEFAULT '',
       raw_gemini_response   TEXT DEFAULT '',
       source_files          TEXT DEFAULT '[]',
-      analyzed_at           TEXT DEFAULT (datetime('now')),
+      analyzed_at           TEXT DEFAULT NULL,
       status                TEXT DEFAULT 'pending',
       error_message         TEXT DEFAULT ''
     );
@@ -323,15 +323,17 @@ export function getGoalsList(filters?: { region?: string; gate?: string; status?
   initGoalsSchema();
   const db = getDb();
 
-  // Auto-sync discovered projects into the DB as pending
+  // Auto-sync discovered projects into the DB
   try {
     const scanned = scanProjects();
-    const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO project_goals (project_id, project_name, region, gate, status)
-      VALUES (?, ?, ?, ?, 'pending')
+    const upsertStmt = db.prepare(`
+      INSERT INTO project_goals (project_id, project_name, region, gate, source_files, status, analyzed_at)
+      VALUES (?, ?, ?, ?, ?, 'pending', NULL)
+      ON CONFLICT(project_id) DO UPDATE SET
+        source_files = excluded.source_files
     `);
     for (const p of scanned) {
-      insertStmt.run(p.projectId, p.projectName, p.region, p.gate);
+      upsertStmt.run(p.projectId, p.projectName, p.region, p.gate, JSON.stringify(p.files));
     }
   } catch (e) {
     console.error('Failed to sync projects into goals list:', e);
@@ -376,4 +378,37 @@ export function getGoalsExportCsv(): string {
   ].map(escape).join(','));
 
   return [headers.map(escape).join(','), ...rows].join('\n');
+}
+
+export function resetGoalsData(): void {
+  if (runStatus.isRunning) {
+    throw new Error('Cannot reset while analysis is running');
+  }
+
+  const db = getDb();
+  db.exec(`
+    UPDATE project_goals 
+    SET digital_technologies = '',
+        change_management = '',
+        security_impacts = '',
+        regional_impacts = '',
+        ia_embedded = '',
+        gio_sl_dds_impacts = '',
+        dds_gio_workload = '',
+        business_apps_cis = '',
+        raw_gemini_response = '',
+        analyzed_at = NULL,
+        status = 'pending',
+        error_message = ''
+  `);
+
+  runStatus = {
+    isRunning: false,
+    totalProjects: 0,
+    processedProjects: 0,
+    successCount: 0,
+    errorCount: 0,
+    currentProject: '',
+    errors: [],
+  };
 }

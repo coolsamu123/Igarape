@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGoalsList, getGoalsExportCsv, getGoalsStatus, runGoalsAnalysis, runSingleGoalAnalysis, initGoalsSchema } from '@/lib/goals-analyzer';
+import { getGoalsList, getGoalsExportCsv, getGoalsStatus, runGoalsAnalysis, runSingleGoalAnalysis, initGoalsSchema, resetGoalsData } from '@/lib/goals-analyzer';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -49,6 +49,16 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json({ message: 'Single analysis started', status: getGoalsStatus() });
+    }
+
+    if (action === 'delete_everything') {
+      try {
+        resetGoalsData();
+        return NextResponse.json({ message: 'All goals data deleted successfully', status: getGoalsStatus() });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
     }
 
     // Default action: start full analysis

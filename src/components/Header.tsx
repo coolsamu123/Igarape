@@ -20,11 +20,9 @@ export default function Header() {
   return (
     <div className="px-6 py-3 border-b border-gray-800 flex items-center gap-4 bg-[#0d1117]">
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 bg-gradient-to-br from-blue-700 to-purple-600 rounded-lg flex items-center justify-center text-sm">
-          ⬡
-        </div>
+        <img src="/icon-192.png" alt="Strom" className="w-8 h-8 rounded-lg" />
         <div>
-          <div className="text-sm font-bold text-gray-100 tracking-tight">CIOO Project Intelligence</div>
+          <div className="text-sm font-bold text-gray-100 tracking-tight">Strom — Portfolio Intelligence</div>
           <div className="text-xs text-gray-500">Air Liquide · IT Portfolio Analytics</div>
         </div>
       </div>

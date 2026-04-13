@@ -4,18 +4,19 @@ export const DDS_COLORS: Record<string, string> = {
   'AMEI': '#f97316',
   'Americas': '#ef4444',
   'APAC': '#06b6d4',
-  'CF': '#8b5cf6',
+  'CF': '#ff2d7a',
   'CDIO Office': '#1d4ed8',
   'CDIOO': '#1e40af',
   'Digital': '#ec4899',
   'Digital Factory': '#f472b6',
   'E&C': '#10b981',
-  'EU': '#3b82f6',
+  'EU': '#a855f7',
+  'Europe': '#a855f7',
   'Entreprise Apps': '#a855f7',
   'GDO': '#14b8a6',
-  'GIO': '#6366f1',
+  'GIO': '#22c55e',
   'GM&T': '#f59e0b',
-  'HC D&IT': '#84cc16',
+  'HC D&IT': '#39ff14',
   'IDD': '#22d3ee',
   'Indutrial Apps': '#fb923c',
   'SEPPIC': '#a3e635',
@@ -23,7 +24,7 @@ export const DDS_COLORS: Record<string, string> = {
   'Alizent': '#e879f9',
 };
 
-export const DEFAULT_COLOR = '#6366f1';
+export const DEFAULT_COLOR = '#ff6b6b';
 
 // ─── Gate Order & Colors ─────────────────────────────────────────────────────
 

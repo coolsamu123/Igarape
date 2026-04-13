@@ -4,9 +4,25 @@ import { getDb } from './db';
 import { extractTags } from './similarity';
 import { getProjectDocuments } from './drive-engine';
 import { getPrompts } from './prompts';
-import type { ProjectSummary, ProjectImpact, ImpactAnalysisStatus } from './types';
+import type { CIOOProject, CIOOService, ProjectImpact, ProjectSummary, ImpactAnalysisStatus } from './types';
 
 // ─── Module-level state for tracking analysis progress ───────────────────────
+
+export const IMPACT_ANALYSIS_QUERY = `
+  SELECT
+    g.id as goal_id, g.project_id, g.project_name, g.region, g.gate as goal_gate,
+    g.month_folder, g.digital_technologies, g.change_management, g.security_impacts,
+    g.regional_impacts, g.ia_embedded, g.gio_sl_dds_impacts, g.dds_gio_workload,
+    g.business_apps_cis, g.raw_gemini_response, g.source_files, g.analyzed_at,
+    g.status as goal_status, g.error_message,
+    p.name as proj_name, p.dds, p.gate as proj_gate, p.decision, p.cost_keur, p.description, p.remarks,
+    p.review_date, p.link_positions, p.link_folder, p.link_cioo,
+    p.services
+  FROM project_goals g
+  LEFT JOIN projects p ON g.project_id = p.project_id
+  WHERE g.project_id != '' AND g.status = 'success'
+  ORDER BY g.project_id, p.review_date DESC
+`;
 
 let analysisStatus: ImpactAnalysisStatus = {
   isRunning: false,
@@ -28,22 +44,47 @@ function getGeminiClient() {
 
 // ─── Fetch all project summaries from DB ─────────────────────────────────────
 
-function fetchAllProjectSummaries(): ProjectSummary[] {
+export interface GoalEntry {
+  goal_id: number;
+  gate: string;
+  decision: string;
+  review_date: string;
+  region: string;
+  month_folder: string;
+  digital_technologies: string;
+  change_management: string;
+  security_impacts: string;
+  regional_impacts: string;
+  ia_embedded: string;
+  gio_sl_dds_impacts: string;
+  dds_gio_workload: string;
+  business_apps_cis: string;
+  source_files: string;
+  analyzed_at: string;
+  goal_status: string;
+}
+
+export interface ProjectFullRecord {
+  projectId: string;
+  name: string;
+  dds: string;
+  currentGate: string;
+  costKEur: number | null;
+  description: string;
+  remarks: string;
+  decision: string;
+  reviewDate: string;
+  linkPositions: string;
+  linkFolder: string;
+  linkCIOO: string;
+  services: CIOOService[];
+  goalEntries: GoalEntry[];
+  tags: string[];
+}
+
+function fetchAllProjectRecords(): ProjectFullRecord[] {
   const db = getDb();
-  const rows = db.prepare(`
-    SELECT 
-      g.id as goal_id, g.project_id, g.project_name, g.region, g.gate as goal_gate, 
-      g.month_folder, g.digital_technologies, g.change_management, g.security_impacts, 
-      g.regional_impacts, g.ia_embedded, g.gio_sl_dds_impacts, g.dds_gio_workload, 
-      g.business_apps_cis, g.raw_gemini_response, g.source_files, g.analyzed_at, 
-      g.status as goal_status, g.error_message,
-      p.dds, p.decision, p.cost_keur, p.description, p.remarks, 
-      p.review_date, p.link_positions, p.link_folder, p.link_cioo
-    FROM project_goals g
-    LEFT JOIN projects p ON g.project_id = p.project_id
-    WHERE g.project_id != '' AND g.status = 'success'
-    ORDER BY g.project_id, p.review_date DESC
-  `).all() as Record<string, unknown>[];
+  const rows = db.prepare(IMPACT_ANALYSIS_QUERY).all() as Record<string, unknown>[];
 
   const grouped = new Map<string, Record<string, unknown>[]>();
   for (const row of rows) {
@@ -52,112 +93,257 @@ function fetchAllProjectSummaries(): ProjectSummary[] {
     grouped.get(key)!.push(row);
   }
 
-  const summaries: ProjectSummary[] = [];
+  const records: ProjectFullRecord[] = [];
   for (const [projectId, entries] of Array.from(grouped.entries())) {
-    const latest = entries[0];
+    const sortedEntries = [...entries].sort((a, b) => {
+      const aDate = (a.analyzed_at as string) || '';
+      const bDate = (b.analyzed_at as string) || '';
+      return bDate.localeCompare(aDate);
+    });
+
+    const byReviewDate = sortedEntries.filter(e => e.review_date && String(e.review_date).trim());
+    const latestByReview = byReviewDate.length > 0 ? byReviewDate[0] : sortedEntries[0];
+    const latestByAnalyzed = sortedEntries[0];
+
     const allDescriptions = entries.map(e => e.description as string).filter(Boolean);
     const allRemarks = entries.map(e => e.remarks as string).filter(Boolean);
-    const bestDescription = allDescriptions[0] || '';
-    const bestRemarks = allRemarks[0] || '';
+    let bestDescription = allDescriptions.join(' | ');
+    const bestRemarks = allRemarks.join(' | ');
 
-    summaries.push({
+    // Fallback: when the projects row is a placeholder (no description), synthesize one
+    // from the goal analysis so Details/Timeline/Matrix/Graph have something to render.
+    if (!bestDescription) {
+      const g = latestByAnalyzed;
+      const digital = (g.digital_technologies as string) || '';
+      const business = (g.business_apps_cis as string) || '';
+      bestDescription = (digital || business).slice(0, 400);
+    }
+
+    // Fallback review date: project row has no review_date → use goal analysis date.
+    let reviewDateStr = (latestByReview.review_date as string) || '';
+    if (!reviewDateStr) {
+      const analyzedAt = (latestByAnalyzed.analyzed_at as string) || '';
+      reviewDateStr = analyzedAt.slice(0, 10); // YYYY-MM-DD
+    }
+
+    const goalEntries: GoalEntry[] = sortedEntries.map(e => ({
+      goal_id: e.goal_id as number,
+      gate: (e.goal_gate as string) || '',
+      decision: (e.decision as string) || '',
+      review_date: (e.review_date as string) || '',
+      region: (e.region as string) || '',
+      month_folder: (e.month_folder as string) || '',
+      digital_technologies: (e.digital_technologies as string) || '',
+      change_management: (e.change_management as string) || '',
+      security_impacts: (e.security_impacts as string) || '',
+      regional_impacts: (e.regional_impacts as string) || '',
+      ia_embedded: (e.ia_embedded as string) || '',
+      gio_sl_dds_impacts: (e.gio_sl_dds_impacts as string) || '',
+      dds_gio_workload: (e.dds_gio_workload as string) || '',
+      business_apps_cis: (e.business_apps_cis as string) || '',
+      source_files: (e.source_files as string) || '',
+      analyzed_at: (e.analyzed_at as string) || '',
+      goal_status: (e.goal_status as string) || '',
+    }));
+
+    // Prefer the real gate from projects.gate; fall back to goal_gate only if it's a real value.
+    const pickGate = (v: unknown): string => {
+      const s = String(v ?? '').trim();
+      if (!s) return '';
+      if (s.toLowerCase() === 'unknown') return '';
+      return s;
+    };
+    const projGate = pickGate(latestByReview.proj_gate);
+    const goalGateFallback = pickGate(latestByAnalyzed.goal_gate);
+    const resolvedGate = projGate || goalGateFallback;
+
+    // Prefer the clean name from projects table over the messy goal filename
+    const projName = ((latestByReview.proj_name as string) || '').trim();
+    const goalName = ((latestByAnalyzed.project_name as string) || '').trim();
+    // projects.name is clean (from sheet); goal name is often a filename with underscores
+    const resolvedName = (projName && projName !== projectId) ? projName : (goalName || projectId);
+
+    records.push({
       projectId,
-      name: (latest.project_name as string) || '',
-      dds: latest.dds as string,
-      currentGate: (latest.goal_gate as string) || '',
-      latestDecision: latest.decision as string,
-      costKEur: latest.cost_keur as number | null,
+      name: resolvedName,
+      dds: latestByReview.dds as string || '',
+      currentGate: resolvedGate,
+      costKEur: latestByReview.cost_keur as number | null ?? null,
       description: bestDescription,
       remarks: bestRemarks,
-      reviewCount: entries.length,
-      lastReviewDate: latest.review_date as string,
-      linkPositions: (entries.find(e => e.link_positions) || latest).link_positions as string || '',
-      linkFolder: (entries.find(e => e.link_folder) || latest).link_folder as string || '',
-      linkCIOO: (entries.find(e => e.link_cioo) || latest).link_cioo as string || '',
+      decision: latestByReview.decision as string || '',
+      reviewDate: reviewDateStr,
+      linkPositions: (latestByReview.link_positions as string) || '',
+      linkFolder: (latestByReview.link_folder as string) || '',
+      linkCIOO: (latestByReview.link_cioo as string) || '',
+      services: (() => {
+        try {
+          const raw = latestByReview.services as string | undefined;
+          return raw ? JSON.parse(raw) as CIOOService[] : [];
+        } catch { return [] as CIOOService[]; }
+      })(),
+      goalEntries,
       tags: extractTags({
-        name: latest.project_name as string || '',
+        name: resolvedName,
         description: bestDescription,
         remarks: bestRemarks,
       }),
-      history: [],
-      
-      // Map new goal fields
-      region: latest.region as string,
-      monthFolder: latest.month_folder as string,
-      digitalTechnologies: latest.digital_technologies as string,
-      changeManagement: latest.change_management as string,
-      securityImpacts: latest.security_impacts as string,
-      regionalImpacts: latest.regional_impacts as string,
-      iaEmbedded: latest.ia_embedded as string,
-      gioSlDdsImpacts: latest.gio_sl_dds_impacts as string,
-      ddsGioWorkload: latest.dds_gio_workload as string,
-      businessAppsCis: latest.business_apps_cis as string,
-      rawGeminiResponse: latest.raw_gemini_response as string,
-      sourceFiles: latest.source_files as string,
-      analyzedAt: latest.analyzed_at as string,
-      goalStatus: latest.goal_status as string,
-      errorMessage: latest.error_message as string,
     });
   }
 
-  return summaries;
+  return records;
 }
 
-// ─── Build batches: group by DDS, then overflow ──────────────────────────────
+// ─── Fetch ProjectSummaries for views (used by /api/projects) ───────────────
+
+export function fetchProjectSummariesForViews(): ProjectSummary[] {
+  const records = fetchAllProjectRecords();
+  return records.map((r): ProjectSummary => {
+    // One synthetic history entry per goal analysis so TimelineView has dots to render.
+    const history: CIOOProject[] = r.goalEntries.map((g, idx) => ({
+      id: g.goal_id,
+      projectId: r.projectId,
+      name: r.name,
+      dds: r.dds,
+      gate: g.gate || r.currentGate,
+      costKEur: idx === 0 ? r.costKEur : null,
+      description: r.description,
+      remarks: r.remarks,
+      qa: '',
+      reviewDate: (g.review_date || g.analyzed_at.slice(0, 10)) || '',
+      decision: g.decision || r.decision,
+      decisionMode: '',
+      decisionDate: '',
+      reviewStatus: '',
+      documentsStatus: '',
+      restricted: '',
+      costBeforeG2: null,
+      estGate2Date: '',
+      sessionStart: '',
+      sessionEnd: '',
+      participants: '',
+      linkPositions: r.linkPositions,
+      linkFolder: r.linkFolder,
+      linkCIOO: r.linkCIOO,
+      year: null,
+      month: null,
+      batchId: '',
+      services: r.services,
+    }));
+
+    return {
+    projectId: r.projectId,
+    name: r.name,
+    dds: r.dds,
+    currentGate: r.currentGate,
+    latestDecision: r.decision,
+    costKEur: r.costKEur,
+    description: r.description,
+    remarks: r.remarks,
+    reviewCount: r.goalEntries.length,
+    lastReviewDate: r.reviewDate,
+    linkPositions: r.linkPositions,
+    linkFolder: r.linkFolder,
+    linkCIOO: r.linkCIOO,
+    tags: r.tags,
+    history,
+    services: r.services,
+
+    digitalTechnologies: r.goalEntries[0]?.digital_technologies ?? '',
+    changeManagement:    r.goalEntries[0]?.change_management    ?? '',
+    securityImpacts:     r.goalEntries[0]?.security_impacts     ?? '',
+    regionalImpacts:     r.goalEntries[0]?.regional_impacts     ?? '',
+    iaEmbedded:          r.goalEntries[0]?.ia_embedded          ?? '',
+    gioSlDdsImpacts:     r.goalEntries[0]?.gio_sl_dds_impacts   ?? '',
+    ddsGioWorkload:      r.goalEntries[0]?.dds_gio_workload     ?? '',
+    businessAppsCis:     r.goalEntries[0]?.business_apps_cis    ?? '',
+    subappAnalyzed: true,
+    };
+  });
+}
+
+// ─── Build full-coverage batches ─────────────────────────────────────────────
 
 interface Batch {
   label: string;
-  projects: ProjectSummary[];
+  projects: ProjectFullRecord[];
 }
 
-function buildBatches(projects: ProjectSummary[], batchSize: number = 22): Batch[] {
-  // Group by DDS
-  const byDDS = new Map<string, ProjectSummary[]>();
-  for (const p of projects) {
-    const dds = p.dds || '(unknown)';
-    if (!byDDS.has(dds)) byDDS.set(dds, []);
-    byDDS.get(dds)!.push(p);
+function buildFullCoverageBatches(
+  records: ProjectFullRecord[],
+  batchSize = 22
+): Batch[] {
+  const N = records.length;
+  if (N === 0) return [];
+  if (N <= batchSize) {
+    return [{ label: `All projects (${N})`, projects: records }];
   }
 
-  const batches: Batch[] = [];
-
-  for (const [dds, ddsProjects] of Array.from(byDDS.entries())) {
-    // Split into batches of batchSize
-    for (let i = 0; i < ddsProjects.length; i += batchSize) {
-      const chunk = ddsProjects.slice(i, i + batchSize);
-      const batchNum = Math.floor(i / batchSize) + 1;
-      const totalChunks = Math.ceil(ddsProjects.length / batchSize);
-      const label = totalChunks > 1 ? `${dds} (${batchNum}/${totalChunks})` : dds;
-      batches.push({ label, projects: chunk });
+  const uncovered = new Set<string>();
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      uncovered.add(`${i}|${j}`);
     }
   }
 
-  return batches;
-}
-
-// ─── Build cross-DDS batches ─────────────────────────────────────────────────
-
-function buildCrossDDSBatches(projects: ProjectSummary[], topN: number = 6): Batch[] {
-  const byDDS = new Map<string, ProjectSummary[]>();
-  for (const p of projects) {
-    const dds = p.dds || '(unknown)';
-    if (!byDDS.has(dds)) byDDS.set(dds, []);
-    byDDS.get(dds)!.push(p);
-  }
-
-  // Get top projects from each DDS (sorted by cost descending)
-  const topByDDS: ProjectSummary[] = [];
-  for (const [, ddsProjects] of Array.from(byDDS.entries())) {
-    const sorted = [...ddsProjects].sort((a, b) => (b.costKEur || 0) - (a.costKEur || 0));
-    topByDDS.push(...sorted.slice(0, topN));
-  }
-
-  // Build cross-DDS batches of ~22
   const batches: Batch[] = [];
-  for (let i = 0; i < topByDDS.length; i += 22) {
-    const chunk = topByDDS.slice(i, i + 22);
-    const batchNum = Math.floor(i / 22) + 1;
-    batches.push({ label: `Cross-DDS batch ${batchNum}`, projects: chunk });
+  let round = 1;
+
+  while (uncovered.size > 0) {
+    const inBatch: number[] = [];
+    const uncoveredByIdx = new Map<number, number>();
+    for (const key of uncovered) {
+      const [a, b] = key.split('|').map(Number);
+      uncoveredByIdx.set(a, (uncoveredByIdx.get(a) ?? 0) + 1);
+      uncoveredByIdx.set(b, (uncoveredByIdx.get(b) ?? 0) + 1);
+    }
+
+    const seed = [...uncoveredByIdx.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    inBatch.push(seed);
+
+    while (inBatch.length < batchSize) {
+      let best = -1;
+      let bestGain = -1;
+      for (let cand = 0; cand < N; cand++) {
+        if (inBatch.includes(cand)) continue;
+        let gain = 0;
+        for (const member of inBatch) {
+          const key = cand < member ? `${cand}|${member}` : `${member}|${cand}`;
+          if (uncovered.has(key)) gain++;
+        }
+        if (gain > bestGain) {
+          bestGain = gain;
+          best = cand;
+        }
+      }
+      if (best < 0) break;
+      inBatch.push(best);
+      if (bestGain === 0) break;
+    }
+
+    if (inBatch.length < batchSize) {
+      for (let cand = 0; cand < N && inBatch.length < batchSize; cand++) {
+        if (!inBatch.includes(cand)) inBatch.push(cand);
+      }
+    }
+
+    for (let a = 0; a < inBatch.length; a++) {
+      for (let b = a + 1; b < inBatch.length; b++) {
+        const i = Math.min(inBatch[a], inBatch[b]);
+        const j = Math.max(inBatch[a], inBatch[b]);
+        uncovered.delete(`${i}|${j}`);
+      }
+    }
+
+    batches.push({
+      label: `Round ${round++} (${inBatch.length} projects)`,
+      projects: inBatch.map(idx => records[idx]),
+    });
+
+    if (batches.length > 200) {
+      console.warn('[Impact] buildFullCoverageBatches hit 200-batch safety cap');
+      break;
+    }
   }
 
   return batches;
@@ -165,43 +351,78 @@ function buildCrossDDSBatches(projects: ProjectSummary[], topN: number = 6): Bat
 
 // ─── Build prompt for a batch ────────────────────────────────────────────────
 
-function buildImpactPrompt(projects: ProjectSummary[]): string {
-  const projectList = projects.map(p => {
-    const cost = p.costKEur ? `${p.costKEur}k€` : 'N/A';
-    let entry = `- ${p.projectId}: "${p.name}" (DDS: ${p.dds || 'N/A'}, Gate: ${p.currentGate || 'N/A'}, Cost: ${cost})`;
-    if (p.description) entry += `\n  Description: ${p.description}`;
-    if (p.remarks) entry += `\n  Remarks: ${p.remarks}`;
-    if (p.digitalTechnologies) entry += `\n  Digital Technologies: ${p.digitalTechnologies}`;
-    if (p.changeManagement) entry += `\n  Change Management: ${p.changeManagement}`;
-    if (p.securityImpacts) entry += `\n  Security Impacts: ${p.securityImpacts}`;
-    if (p.regionalImpacts) entry += `\n  Regional Impacts: ${p.regionalImpacts}`;
-    if (p.iaEmbedded) entry += `\n  IA Embedded: ${p.iaEmbedded}`;
-    if (p.gioSlDdsImpacts) entry += `\n  GIO Impacts: ${p.gioSlDdsImpacts}`;
-    if (p.ddsGioWorkload) entry += `\n  GIO Workload: ${p.ddsGioWorkload}`;
-    if (p.businessAppsCis) entry += `\n  Business Apps/CIs: ${p.businessAppsCis}`;
+function buildImpactPrompt(records: ProjectFullRecord[]): string {
+  const MAX_PROMPT_CHARS = 200_000;
+  const DOC_SLICE = 4000;
+  const DOCS_TOTAL = 8000;
 
-    // Include downloaded document content if available
+  const entries: string[] = [];
+  let used = 0;
+  let dropped = 0;
+
+  const emit = (field: string, value: string | number | null | undefined): string => {
+    if (value === null || value === undefined || value === '') return '';
+    return `\n  ${field}: ${value}`;
+  };
+
+  for (const r of records) {
+    const parts: string[] = [];
+    parts.push(
+      `- ${r.projectId}: "${r.name}" (DDS: ${r.dds || 'N/A'}, Gate: ${r.currentGate || 'N/A'}, Cost: ${r.costKEur ? `${r.costKEur}k€` : 'N/A'})`
+    );
+    parts.push(emit('Decision', r.decision));
+    parts.push(emit('Review Date', r.reviewDate));
+    parts.push(emit('Description', r.description));
+    parts.push(emit('Remarks', r.remarks));
+    if (r.linkPositions) parts.push(emit('Link (Positions)', r.linkPositions));
+    if (r.linkFolder) parts.push(emit('Link (Folder)', r.linkFolder));
+    if (r.linkCIOO) parts.push(emit('Link (CIOO)', r.linkCIOO));
+
+    r.goalEntries.forEach((g, idx) => {
+      const header = `\n  Goal analysis ${idx + 1}${g.month_folder ? ` [${g.month_folder}]` : ''}${g.analyzed_at ? ` (${g.analyzed_at})` : ''}:`;
+      const body = [
+        emit('    Region', g.region),
+        emit('    Digital Technologies', g.digital_technologies),
+        emit('    Change Management', g.change_management),
+        emit('    Security Impacts', g.security_impacts),
+        emit('    Regional Impacts', g.regional_impacts),
+        emit('    IA Embedded', g.ia_embedded),
+        emit('    GIO/SL/DDS Impacts', g.gio_sl_dds_impacts),
+        emit('    DDS/GIO Workload', g.dds_gio_workload),
+        emit('    Business Apps/CIs', g.business_apps_cis),
+        emit('    Source Files', g.source_files),
+      ].filter(Boolean).join('');
+      if (body) parts.push(header + body);
+    });
+
     try {
-      const docs = getProjectDocuments(p.projectId);
+      const docs = getProjectDocuments(r.projectId);
       const docTexts = docs
         .filter(d => d.status === 'success' && d.content)
-        .map(d => d.content.slice(0, 2000))
-        .join('\n---\n');
-      if (docTexts) {
-        entry += `\n  Documents:\n${docTexts.slice(0, 4000)}`;
-      }
-    } catch {
-      // No docs available — that's fine
+        .map(d => d.content.slice(0, DOC_SLICE))
+        .join('\n---\n')
+        .slice(0, DOCS_TOTAL);
+      if (docTexts) parts.push(`\n  Documents:\n${docTexts}`);
+    } catch { /* no docs */ }
+
+    const entry = parts.filter(Boolean).join('');
+    if (used + entry.length > MAX_PROMPT_CHARS) {
+      dropped++;
+      continue;
     }
+    entries.push(entry);
+    used += entry.length;
+  }
 
-    return entry;
-  }).join('\n\n');
+  if (dropped > 0) {
+    console.warn(
+      `[Impact] buildImpactPrompt dropped ${dropped}/${records.length} projects due to ${MAX_PROMPT_CHARS}-char cap (used=${used})`
+    );
+  }
 
-  // Cap project list to avoid exceeding token limits
-  const cappedList = projectList.slice(0, 60000);
-
+  const projectList = entries.join('\n\n');
   const { impactPrompt } = getPrompts();
-  return impactPrompt.replace('{{PROJECTS_LIST}}', cappedList);
+  return impactPrompt.replace('{{PROJECTS_LIST}}', projectList);
 }
 
 // ─── Parse Gemini response robustly ──────────────────────────────────────────
@@ -326,15 +547,10 @@ export async function runFullImpactAnalysis(): Promise<void> {
   };
 
   try {
-    const projects = fetchAllProjectSummaries();
-    analysisStatus.totalProjects = projects.length;
+    const records = fetchAllProjectRecords();
+    analysisStatus.totalProjects = records.length;
 
-    // Build intra-DDS batches
-    const ddsBatches = buildBatches(projects, 22);
-    // Build cross-DDS batches
-    const crossBatches = buildCrossDDSBatches(projects, 6);
-
-    const allBatches = [...ddsBatches, ...crossBatches];
+    const allBatches = buildFullCoverageBatches(records, 22);
     analysisStatus.totalBatches = allBatches.length;
 
     const runBatchId = uuidv4();
@@ -404,6 +620,18 @@ export function getProjectImpacts(projectId: string): ProjectImpact[] {
   return rows.map(mapImpactRow);
 }
 
+// ─── Clear all impacts ───────────────────────────────────────────────────────
+
+export function clearAllImpacts(): number {
+  if (analysisStatus.isRunning) {
+    throw new Error('Cannot clear impacts while an analysis is running');
+  }
+  const db = getDb();
+  const result = db.prepare('DELETE FROM projects_impact').run();
+  analysisStatus.totalImpacts = 0;
+  return result.changes;
+}
+
 // ─── Get all impacts ─────────────────────────────────────────────────────────
 
 export function getAllImpacts(): ProjectImpact[] {
@@ -450,5 +678,38 @@ function mapImpactRow(row: ImpactDbRow): ProjectImpact {
     batchId: row.batch_id,
     createdAt: row.created_at,
     gioServices: parsedGio,
+  };
+}
+
+// ─── Query Preview ───────────────────────────────────────────────────────────
+
+export interface ImpactQueryPreview {
+  query: string;
+  columns: string[];
+  rowCount: number;
+  rows: Record<string, unknown>[];
+  groupedRowCount: number;
+  generatedAt: string;
+}
+
+export function getImpactQueryPreview(mode: 'raw' | 'grouped' = 'raw'): ImpactQueryPreview {
+  const db = getDb();
+  const rawRows = db.prepare(IMPACT_ANALYSIS_QUERY).all() as Record<string, unknown>[];
+
+  const grouped = new Set(rawRows.map(r => String(r.project_id)));
+
+  const rows = mode === 'grouped'
+    ? fetchAllProjectRecords() as unknown as Record<string, unknown>[]
+    : rawRows;
+
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+  return {
+    query: IMPACT_ANALYSIS_QUERY.trim(),
+    columns,
+    rowCount: rows.length,
+    rows,
+    groupedRowCount: grouped.size,
+    generatedAt: new Date().toISOString(),
   };
 }

@@ -3,15 +3,28 @@
 import { useProjectContext } from '@/context/ProjectContext';
 import { getDDSColor, getGateColor, getDecisionColor } from '@/lib/constants';
 
+const UNRELIABLE_VALUES = new Set([
+  '', 'n/a', 'na', 'none', 'unknown', 'not identified',
+  'not available', 'not applicable', 'not specified',
+  'not identified in available documentation',
+]);
+
+function isUseful(value: string | null | undefined): value is string {
+  if (!value) return false;
+  const v = value.trim().toLowerCase();
+  if (UNRELIABLE_VALUES.has(v)) return false;
+  if (v.startsWith('not identified') || v.startsWith('not available')) return false;
+  return true;
+}
+
 export default function DetailView() {
-  const { filtered, links, selected, setSelected } = useProjectContext();
+  const { filtered, selected, setSelected } = useProjectContext();
 
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map(p => {
           const color = getDDSColor(p.dds);
-          const related = links.filter(l => l.source === p.projectId || l.target === p.projectId).length;
           const isSelected = selected === p.projectId;
 
           return (
@@ -20,6 +33,7 @@ export default function DetailView() {
               onClick={() => setSelected(isSelected ? null : p.projectId)}
               className={`bg-gray-900 border rounded-xl p-5 cursor-pointer transition-all hover:-translate-y-0.5
                 ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-gray-800 hover:border-gray-600'}`}
+              style={{ borderTopColor: color, borderTopWidth: '2px' }}
             >
               {/* Header */}
               <div className="flex justify-between items-start mb-2.5">
@@ -27,55 +41,56 @@ export default function DetailView() {
                   {p.projectId}
                 </span>
                 <div className="flex gap-1.5">
-                  <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold"
-                    style={{ background: `${getGateColor(p.currentGate)}22`, color: getGateColor(p.currentGate) }}>
-                    G{p.currentGate}
-                  </span>
-                  <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold"
-                    style={{ background: `${color}22`, color }}>
-                    {p.dds}
-                  </span>
+                  {isUseful(p.currentGate) && (
+                    <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold border"
+                      style={{
+                        background: `${getGateColor(p.currentGate)}18`,
+                        color: getGateColor(p.currentGate),
+                        borderColor: `${getGateColor(p.currentGate)}40`,
+                        boxShadow: `0 0 8px ${getGateColor(p.currentGate)}25`,
+                      }}>
+                      Gate {p.currentGate}
+                    </span>
+                  )}
+                  {isUseful(p.dds) && (
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                      style={{ background: `${color}22`, color }}>
+                      {p.dds}
+                    </span>
+                  )}
                 </div>
               </div>
 
               {/* Name */}
-              <div className="text-sm font-bold text-gray-100 mb-2 leading-snug line-clamp-2">
-                {p.name}
-              </div>
+              {p.name && p.name !== p.projectId && (
+                <div className="text-sm font-bold text-gray-100 mb-2 leading-snug line-clamp-2">
+                  {p.name}
+                </div>
+              )}
 
               {/* Description */}
               {p.description && (
-                <div className="text-xs text-gray-500 leading-relaxed mb-3 line-clamp-3">
+                <div className="text-xs text-gray-300 leading-relaxed mb-3 line-clamp-3">
                   {p.description}
                 </div>
               )}
 
               {/* Decision badge */}
-              <div className="mb-3 flex gap-2 flex-wrap">
-                {p.latestDecision && (
+              {isUseful(p.latestDecision) && (
+                <div className="mb-3 flex gap-2 flex-wrap">
                   <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold"
                     style={{ background: `${getDecisionColor(p.latestDecision)}22`, color: getDecisionColor(p.latestDecision) }}>
                     {p.latestDecision}
                   </span>
-                )}
-                {p.iaEmbedded && p.iaEmbedded !== 'Not identified' && (
-                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                    AI Powered ✨
-                  </span>
-                )}
-                {p.securityImpacts && p.securityImpacts !== 'Not identified' && (
-                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-red-500/20 text-red-400 border border-red-500/30">
-                    Security Impact
-                  </span>
-                )}
-              </div>
+                </div>
+              )}
 
-              {/* Stats row */}
-              <div className="flex justify-between text-[11px] text-gray-500">
-                <span>{p.costKEur ? `${p.costKEur}k€` : '—'}</span>
-                <span>{p.reviewCount} review{p.reviewCount !== 1 ? 's' : ''}</span>
-                <span>{related > 0 ? `${related} links` : '—'}</span>
-              </div>
+              {/* Cost */}
+              {p.costKEur && (
+                <div className="text-[11px] text-gray-400">
+                  <span>{p.costKEur}k€</span>
+                </div>
+              )}
 
               {/* Tags */}
               {p.tags.length > 0 && (
@@ -133,65 +148,79 @@ export default function DetailView() {
 
                   {/* Sub-App AI Extracted Fields */}
                   {p.subappAnalyzed && (
-                    <div className="space-y-3 mt-4">
-                      <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider border-b border-gray-700 pb-1">AI Extracted Insights</div>
-                      
-                      {p.digitalTechnologies && p.digitalTechnologies !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DIGITAL TECHNOLOGIES</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.digitalTechnologies}</div>
+                    (() => {
+                      const hasAnyInsight =
+                        isUseful(p.digitalTechnologies) ||
+                        isUseful(p.businessAppsCis) ||
+                        isUseful(p.gioSlDdsImpacts) ||
+                        isUseful(p.ddsGioWorkload) ||
+                        isUseful(p.changeManagement) ||
+                        isUseful(p.regionalImpacts) ||
+                        isUseful(p.securityImpacts) ||
+                        isUseful(p.iaEmbedded);
+                      if (!hasAnyInsight) return null;
+                      return (
+                        <div className="space-y-3 mt-4">
+                          <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider border-b border-gray-700 pb-1">AI Extracted Insights</div>
+                          
+                          {isUseful(p.digitalTechnologies) && (
+                            <div>
+                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DIGITAL TECHNOLOGIES</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.digitalTechnologies}</div>
+                            </div>
+                          )}
+                          
+                          {isUseful(p.businessAppsCis) && (
+                            <div>
+                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">BUSINESS APPS & CIs</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.businessAppsCis}</div>
+                            </div>
+                          )}
+                          
+                          {isUseful(p.gioSlDdsImpacts) && (
+                            <div>
+                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">GIO SL / DDS IMPACTS</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.gioSlDdsImpacts}</div>
+                            </div>
+                          )}
+                          
+                          {isUseful(p.ddsGioWorkload) && (
+                            <div>
+                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DDS / GIO WORKLOAD</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.ddsGioWorkload}</div>
+                            </div>
+                          )}
+                          
+                          {isUseful(p.changeManagement) && (
+                            <div>
+                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">CHANGE MANAGEMENT</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.changeManagement}</div>
+                            </div>
+                          )}
+                          
+                          {isUseful(p.regionalImpacts) && (
+                            <div>
+                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">REGIONAL IMPACTS</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.regionalImpacts}</div>
+                            </div>
+                          )}
+                          
+                          {isUseful(p.securityImpacts) && (
+                            <div>
+                              <div className="text-[10px] text-red-500 font-semibold mb-0.5">SECURITY IMPACTS</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.securityImpacts}</div>
+                            </div>
+                          )}
+                          
+                          {isUseful(p.iaEmbedded) && (
+                            <div>
+                              <div className="text-[10px] text-purple-500 font-semibold mb-0.5">AI EMBEDDED</div>
+                              <div className="text-xs text-gray-300 leading-relaxed">{p.iaEmbedded}</div>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      
-                      {p.businessAppsCis && p.businessAppsCis !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">BUSINESS APPS & CIs</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.businessAppsCis}</div>
-                        </div>
-                      )}
-                      
-                      {p.gioSlDdsImpacts && p.gioSlDdsImpacts !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">GIO SL / DDS IMPACTS</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.gioSlDdsImpacts}</div>
-                        </div>
-                      )}
-                      
-                      {p.ddsGioWorkload && p.ddsGioWorkload !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DDS / GIO WORKLOAD</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.ddsGioWorkload}</div>
-                        </div>
-                      )}
-                      
-                      {p.changeManagement && p.changeManagement !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">CHANGE MANAGEMENT</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.changeManagement}</div>
-                        </div>
-                      )}
-                      
-                      {p.regionalImpacts && p.regionalImpacts !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-gray-500 font-semibold mb-0.5">REGIONAL IMPACTS</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.regionalImpacts}</div>
-                        </div>
-                      )}
-                      
-                      {p.securityImpacts && p.securityImpacts !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-red-500 font-semibold mb-0.5">SECURITY IMPACTS</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.securityImpacts}</div>
-                        </div>
-                      )}
-                      
-                      {p.iaEmbedded && p.iaEmbedded !== 'Not identified' && (
-                        <div>
-                          <div className="text-[10px] text-purple-500 font-semibold mb-0.5">AI EMBEDDED</div>
-                          <div className="text-xs text-gray-300 leading-relaxed">{p.iaEmbedded}</div>
-                        </div>
-                      )}
-                    </div>
+                      );
+                    })()
                   )}
 
                   {/* Review history */}
@@ -202,8 +231,12 @@ export default function DetailView() {
                         {p.history.slice(0, 8).map((h, i) => (
                           <div key={i} className="flex justify-between text-[10px] text-gray-400 bg-gray-800/50 rounded px-2 py-1">
                             <span>{h.reviewDate || '—'}</span>
-                            <span style={{ color: getGateColor(h.gate) }}>G{h.gate}</span>
-                            <span style={{ color: getDecisionColor(h.decision) }}>{h.decision || '—'}</span>
+                            <span style={{ color: getGateColor(h.gate) }}>
+                              {isUseful(h.gate) ? `G${h.gate}` : '—'}
+                            </span>
+                            <span style={{ color: getDecisionColor(h.decision) }}>
+                              {isUseful(h.decision) ? h.decision : '—'}
+                            </span>
                           </div>
                         ))}
                       </div>
