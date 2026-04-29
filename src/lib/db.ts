@@ -15,11 +15,15 @@ export function getDb(): Database.Database {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
 
-  db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+  const instance = new Database(DB_PATH);
+  instance.pragma('journal_mode = WAL');
+  instance.pragma('foreign_keys = ON');
 
-  initSchema(db);
+  initSchema(instance);
+
+  // Only publish to the module-level singleton AFTER initSchema completes,
+  // so concurrent callers during cold-start don't observe a half-migrated DB.
+  db = instance;
   return db;
 }
 
@@ -125,6 +129,53 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_drive_sheet_rows_idx ON drive_sheet_rows(row_index);
+
+    CREATE TABLE IF NOT EXISTS drive_watch_roots (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      url             TEXT NOT NULL UNIQUE,
+      drive_id        TEXT NOT NULL,
+      label           TEXT DEFAULT '',
+      enabled         INTEGER NOT NULL DEFAULT 1,
+      added_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      last_run_at     TEXT,
+      last_run_status TEXT,
+      last_run_error  TEXT DEFAULT '',
+      added_count     INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS auto_runs (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_at    TEXT NOT NULL,
+      finished_at   TEXT,
+      trigger       TEXT NOT NULL,
+      new_projects  INTEGER NOT NULL DEFAULT 0,
+      goals_added   INTEGER NOT NULL DEFAULT 0,
+      impacts_added INTEGER NOT NULL DEFAULT 0,
+      errors_json   TEXT NOT NULL DEFAULT '[]',
+      status        TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_auto_runs_started ON auto_runs(started_at DESC);
+
+    CREATE TABLE IF NOT EXISTS llm_calls (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      called_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      provider    TEXT NOT NULL,
+      model       TEXT NOT NULL,
+      context     TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'success',
+      duration_ms INTEGER,
+      error_message TEXT DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_called_at ON llm_calls(called_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_context ON llm_calls(context);
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   try {

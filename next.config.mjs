@@ -1,8 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Required for better-sqlite3 (native Node.js module)
   experimental: {
+    // Required for better-sqlite3 (native Node.js module)
     serverComponentsExternalPackages: ['better-sqlite3'],
+    // Enables instrumentation.ts at the repo root, which boots the auto-discovery scheduler.
+    instrumentationHook: true,
   },
 };
 

@@ -35,7 +35,9 @@ export default function FileUpload() {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
       <div className="text-center mb-4">
-        <h2 className="text-2xl font-bold text-gray-100 mb-2">Strom — Portfolio Intelligence</h2>
+        <h2 className="text-5xl font-extrabold text-gray-100 mb-1 tracking-tight">Strom</h2>
+        <p className="text-lg font-medium text-gray-400 mb-1">— Portfolio Intelligence</p>
+        <p className="text-sm text-gray-500 mb-3">Air Liquide</p>
         <p className="text-gray-400">Upload the CIOO Status Tracking Excel file to get started</p>
       </div>
 

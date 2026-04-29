@@ -2,17 +2,49 @@
 
 import { useState, useEffect } from 'react';
 
+type Provider = 'gemini' | 'deepseek';
+
+const PROVIDER_META: Record<Provider, { label: string; placeholder: string; helpUrl: string; helpLabel: string }> = {
+  gemini: {
+    label: 'Google Gemini',
+    placeholder: 'AIza...',
+    helpUrl: 'https://aistudio.google.com/apikey',
+    helpLabel: 'aistudio.google.com/apikey',
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    placeholder: 'sk-...',
+    helpUrl: 'https://platform.deepseek.com/api_keys',
+    helpLabel: 'platform.deepseek.com/api_keys',
+  },
+};
+
 export default function AdminPage() {
+  const [provider, setProvider] = useState<Provider>('gemini');
   const [apiKey, setApiKey] = useState('');
-  const [savedKey, setSavedKey] = useState('');
+  const [keyTarget, setKeyTarget] = useState<Provider>('gemini');
+  const [keysState, setKeysState] = useState<{
+    gemini: { masked: string; isConfigured: boolean };
+    deepseek: { masked: string; isConfigured: boolean };
+  }>({
+    gemini: { masked: 'Not configured', isConfigured: false },
+    deepseek: { masked: 'Not configured', isConfigured: false },
+  });
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testResult, setTestResult] = useState('');
   const [stats, setStats] = useState<{ analyses: number; documents: number } | null>(null);
 
-  // Upload Excel State
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState('');
+  // Service account state
+  const [saSummary, setSaSummary] = useState<{
+    isConfigured: boolean;
+    clientEmail?: string;
+    projectId?: string;
+    privateKeyId?: string;
+    updatedAt?: string;
+  }>({ isConfigured: false });
+  const [saStatus, setSaStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+  const [saMessage, setSaMessage] = useState('');
 
   // Drive download state
   
@@ -25,16 +57,30 @@ export default function AdminPage() {
   const [newMappingOwner, setNewMappingOwner] = useState('');
   const [mappingStatus, setMappingStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
-  useEffect(() => {
+  const refreshConfig = () => {
     fetch('/api/admin/config')
       .then(r => r.json())
       .then(data => {
-        setSavedKey(data.apiKeyMasked || '');
+        if (data.provider === 'deepseek' || data.provider === 'gemini') {
+          setProvider(data.provider);
+          setKeyTarget(data.provider);
+        }
+        if (data.keys) setKeysState(data.keys);
         setStats(data.stats || null);
       })
       .catch(() => {});
+  };
 
-    
+  const refreshServiceAccount = () => {
+    fetch('/api/admin/service-account')
+      .then(r => r.json())
+      .then(data => setSaSummary(data))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshConfig();
+    refreshServiceAccount();
 
     // Fetch mappings
     fetch('/api/services/mapping')
@@ -54,17 +100,32 @@ export default function AdminPage() {
       const res = await fetch('/api/admin/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey.trim() }),
+        body: JSON.stringify({ apiKey: apiKey.trim(), targetProvider: keyTarget }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setSavedKey(data.apiKeyMasked);
       setApiKey('');
       setStatus('saved');
+      refreshConfig();
       setTimeout(() => setStatus('idle'), 3000);
     } catch (e: unknown) {
       setStatus('error');
       setTestResult(e instanceof Error ? e.message : 'Save failed');
+    }
+  };
+
+  const handleProviderChange = async (next: Provider) => {
+    setProvider(next);
+    setKeyTarget(next);
+    try {
+      await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: next }),
+      });
+      refreshConfig();
+    } catch {
+      // ignore
     }
   };
 
@@ -83,35 +144,50 @@ export default function AdminPage() {
     }
   };
 
-  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleServiceAccountUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploading(true);
-    setUploadResult('Uploading and parsing...');
-
-    const formData = new FormData();
-    formData.append('file', file);
+    setSaStatus('uploading');
+    setSaMessage('');
 
     try {
-      const res = await fetch('/api/projects/upload', {
+      const text = await file.text();
+      const res = await fetch('/api/admin/service-account', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setUploadResult(`Success: Parsed ${data.count} projects from Excel.`);
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      setSaStatus('success');
+      setSaMessage(`Saved. Service account: ${data.clientEmail}`);
+      setSaSummary(data);
+      setTimeout(() => setSaStatus('idle'), 3000);
     } catch (err: unknown) {
-      setUploadResult(`Error: ${err instanceof Error ? err.message : 'Upload failed'}`);
+      setSaStatus('error');
+      setSaMessage(err instanceof Error ? err.message : 'Upload failed');
     } finally {
-      setUploading(false);
-      // reset file input
       e.target.value = '';
     }
   };
 
-  
+  const handleServiceAccountDelete = async () => {
+    if (!confirm('Remove the saved service account key? Drive/Sheets features will stop working until you upload a new one.')) return;
+    try {
+      const res = await fetch('/api/admin/service-account', { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+      setSaSummary({ isConfigured: false });
+      setSaMessage('Service account key removed.');
+      setSaStatus('success');
+      setTimeout(() => setSaStatus('idle'), 3000);
+    } catch (err: unknown) {
+      setSaStatus('error');
+      setSaMessage(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
   const handleSaveMappings = async (updatedMappings: { domain: string; owner: string }[]) => {
     setMappingStatus('saving');
     try {
@@ -143,7 +219,7 @@ export default function AdminPage() {
   };
 
   const handleClearCache = async () => {
-    if (!confirm('Clear all Gemini analysis cache? This cannot be undone.')) return;
+    if (!confirm('Clear all LLM analysis cache? This cannot be undone.')) return;
     try {
       const res = await fetch('/api/admin/clear-cache', { method: 'POST' });
       const data = await res.json();
@@ -233,10 +309,13 @@ export default function AdminPage() {
         background: '#0d1117',
       }}>
         <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
-          <img src="/icon-192.png" alt="Strom" style={{ width: 32, height: 32, borderRadius: 8 }} />
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.02em' }}>Strom — Portfolio Intelligence</div>
-            <div style={{ fontSize: 11, color: '#64748b' }}>Administration</div>
+          <img src="/icon-192.png" alt="Strom" style={{ width: 40, height: 40, borderRadius: 8 }} />
+          <div style={{ lineHeight: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span style={{ fontSize: 24, fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.02em' }}>Strom</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#94a3b8', letterSpacing: '-0.02em' }}>— Portfolio Intelligence</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>Air Liquide · Administration</div>
           </div>
         </a>
         <div style={{ flex: 1 }} />
@@ -256,11 +335,42 @@ export default function AdminPage() {
       {/* Content */}
       <div style={{ maxWidth: 640, margin: '0 auto', padding: 32, display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-        {/* Gemini API Configuration */}
+        {/* LLM Provider Configuration */}
         <div style={panelStyle}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Gemini API Configuration</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>LLM Provider Configuration</div>
           <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
-            Configure your Google Gemini API key to enable AI-powered project impact analysis.
+            Choose between Google Gemini and DeepSeek for AI-powered project impact analysis.
+          </div>
+
+          {/* Provider selector */}
+          <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>ACTIVE PROVIDER</div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+            {(['gemini', 'deepseek'] as Provider[]).map(p => {
+              const active = provider === p;
+              return (
+                <button
+                  key={p}
+                  onClick={() => handleProviderChange(p)}
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    borderRadius: 6,
+                    border: active ? '1px solid #1d4ed8' : '1px solid #374151',
+                    background: active ? '#1d4ed833' : '#1f2937',
+                    color: active ? '#bfdbfe' : '#94a3b8',
+                    fontWeight: 600,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div>{PROVIDER_META[p].label}</div>
+                  <div style={{ fontSize: 11, color: keysState[p].isConfigured ? '#4ade80' : '#94a3b8', marginTop: 4, fontWeight: 500 }}>
+                    {keysState[p].isConfigured ? `Key: ${keysState[p].masked}` : 'No key configured'}
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           {/* Status */}
@@ -269,24 +379,49 @@ export default function AdminPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{
                 width: 10, height: 10, borderRadius: '50%',
-                background: savedKey && savedKey !== 'Not configured' ? '#22c55e' : '#ef4444',
+                background: keysState[provider].isConfigured ? '#22c55e' : '#ef4444',
               }} />
               <span style={{ fontSize: 13, color: '#cbd5e1' }}>
-                {savedKey && savedKey !== 'Not configured'
-                  ? `API Key configured: ${savedKey}`
-                  : 'No API key configured'}
+                {keysState[provider].isConfigured
+                  ? `${PROVIDER_META[provider].label} key configured: ${keysState[provider].masked}`
+                  : `No ${PROVIDER_META[provider].label} key configured`}
               </span>
             </div>
           </div>
 
+          {/* Key target selector */}
+          <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>SAVE KEY FOR</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            {(['gemini', 'deepseek'] as Provider[]).map(p => {
+              const active = keyTarget === p;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setKeyTarget(p)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: active ? '1px solid #6d28d9' : '1px solid #374151',
+                    background: active ? '#6d28d933' : '#1f2937',
+                    color: active ? '#ddd6fe' : '#94a3b8',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {PROVIDER_META[p].label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Input */}
-          <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>API KEY</div>
           <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
             <input
               type="password"
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
-              placeholder="AIza..."
+              placeholder={PROVIDER_META[keyTarget].placeholder}
               style={inputStyle}
             />
             <button
@@ -304,10 +439,10 @@ export default function AdminPage() {
             <div style={{ fontSize: 13, color: '#f87171', marginBottom: 8 }}>{testResult}</div>
           )}
           <div style={{ fontSize: 12, color: '#475569' }}>
-            Get your key at{' '}
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"
+            Get your {PROVIDER_META[keyTarget].label} key at{' '}
+            <a href={PROVIDER_META[keyTarget].helpUrl} target="_blank" rel="noopener noreferrer"
               style={{ color: '#60a5fa', textDecoration: 'underline' }}>
-              aistudio.google.com/apikey
+              {PROVIDER_META[keyTarget].helpLabel}
             </a>
           </div>
         </div>
@@ -316,11 +451,11 @@ export default function AdminPage() {
         <div style={panelStyle}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Test Connection</div>
           <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
-            Send a test prompt to verify your Gemini API key works.
+            Send a test prompt to verify your {PROVIDER_META[provider].label} API key works.
           </div>
           <button onClick={handleTest} disabled={testStatus === 'testing'}
             style={{ ...btnPurple, opacity: testStatus === 'testing' ? 0.5 : 1 }}>
-            {testStatus === 'testing' ? 'Testing...' : 'Test Gemini Connection'}
+            {testStatus === 'testing' ? 'Testing...' : `Test ${PROVIDER_META[provider].label} Connection`}
           </button>
           {testStatus === 'success' && (
             <div style={{ marginTop: 14, background: '#052e16', border: '1px solid #166534', borderRadius: 8, padding: 12, fontSize: 13, color: '#86efac' }}>
@@ -334,34 +469,76 @@ export default function AdminPage() {
           )}
         </div>
 
-        {/* Upload Excel */}
+        {/* Service Account Key */}
         <div style={panelStyle}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Upload Projects Metadata</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Google Service Account</div>
           <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
-            Upload the master <strong>0_CIOO Forecast.xlsx</strong> file to populate the base project metadata (costs, dates, decisions).
+            Upload the JSON key for the service account that reads Google Drive folders and Google Sheets.
+            Stored at <code style={{ color: '#94a3b8' }}>data/service-account.json</code> with permissions <code style={{ color: '#94a3b8' }}>0600</code>.
           </div>
-          
-          <label style={{
-            ...btnPrimary,
-            display: 'inline-block',
-            opacity: uploading ? 0.5 : 1,
-            cursor: uploading ? 'default' : 'pointer'
-          }}>
-            {uploading ? 'Uploading...' : 'Upload Excel File'}
-            <input 
-              type="file" 
-              accept=".xlsx, .xls" 
-              style={{ display: 'none' }} 
-              onChange={handleExcelUpload}
-              disabled={uploading}
-            />
-          </label>
-          
-          {uploadResult && (
-            <div style={{ marginTop: 14, background: uploadResult.startsWith('Error') ? '#450a0a' : '#1e3a8a44', border: uploadResult.startsWith('Error') ? '1px solid #7f1d1d' : '1px solid #1d4ed855', borderRadius: 8, padding: 12, fontSize: 13, color: uploadResult.startsWith('Error') ? '#fca5a5' : '#60a5fa' }}>
-              {uploadResult}
+
+          {/* Status */}
+          <div style={{ background: '#1f2937', borderRadius: 8, padding: 14, marginBottom: 16 }}>
+            <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>CURRENT STATUS</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: saSummary.isConfigured ? 10 : 0 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: '50%',
+                background: saSummary.isConfigured ? '#22c55e' : '#ef4444',
+              }} />
+              <span style={{ fontSize: 13, color: '#cbd5e1' }}>
+                {saSummary.isConfigured ? 'Service account configured' : 'No service account configured'}
+              </span>
+            </div>
+            {saSummary.isConfigured && (
+              <div style={{ fontSize: 12, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 20 }}>
+                {saSummary.clientEmail && <div><span style={{ color: '#64748b' }}>Email: </span>{saSummary.clientEmail}</div>}
+                {saSummary.projectId && <div><span style={{ color: '#64748b' }}>Project: </span>{saSummary.projectId}</div>}
+                {saSummary.privateKeyId && <div><span style={{ color: '#64748b' }}>Key ID: </span>{saSummary.privateKeyId}</div>}
+                {saSummary.updatedAt && <div><span style={{ color: '#64748b' }}>Updated: </span>{new Date(saSummary.updatedAt).toLocaleString()}</div>}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{
+              ...btnPrimary,
+              display: 'inline-block',
+              opacity: saStatus === 'uploading' ? 0.5 : 1,
+              cursor: saStatus === 'uploading' ? 'default' : 'pointer',
+            }}>
+              {saStatus === 'uploading' ? 'Uploading...' : (saSummary.isConfigured ? 'Replace Key' : 'Upload Key (JSON)')}
+              <input
+                type="file"
+                accept="application/json,.json"
+                style={{ display: 'none' }}
+                onChange={handleServiceAccountUpload}
+                disabled={saStatus === 'uploading'}
+              />
+            </label>
+            {saSummary.isConfigured && (
+              <button onClick={handleServiceAccountDelete} style={btnDanger}>Remove Key</button>
+            )}
+          </div>
+
+          {saMessage && (
+            <div style={{
+              marginTop: 14,
+              background: saStatus === 'error' ? '#450a0a' : '#052e16',
+              border: saStatus === 'error' ? '1px solid #7f1d1d' : '1px solid #166534',
+              borderRadius: 8, padding: 12, fontSize: 13,
+              color: saStatus === 'error' ? '#fca5a5' : '#86efac',
+            }}>
+              {saMessage}
             </div>
           )}
+
+          <div style={{ fontSize: 12, color: '#475569', marginTop: 14, lineHeight: 1.6 }}>
+            Generate a JSON key in{' '}
+            <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer"
+              style={{ color: '#60a5fa', textDecoration: 'underline' }}>
+              GCP IAM &rarr; Service Accounts
+            </a>. Then share the target Drive folders/files with the service account email above.
+          </div>
         </div>
 
         {/* Domain to Owner Mappings */}
@@ -415,7 +592,7 @@ export default function AdminPage() {
         <div style={panelStyle}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Analysis Cache</div>
           <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
-            Gemini results are cached to avoid repeated API calls.
+            LLM results are cached per provider to avoid repeated API calls.
           </div>
           {stats && (
             <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>

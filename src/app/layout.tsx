@@ -4,7 +4,7 @@ import { ProjectProvider } from "@/context/ProjectContext";
 
 export const metadata: Metadata = {
   title: "Strom — Portfolio Intelligence",
-  description: "Air Liquide IT Portfolio Analytics — Project intersection analysis powered by Gemini AI",
+  description: "Air Liquide — Project intersection analysis",
   icons: {
     icon: '/icon-192.png',
     apple: '/apple-icon.png',

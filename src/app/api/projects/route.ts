@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import type { CIOOProject } from '@/lib/types';
 import { fetchProjectSummariesForViews } from '@/lib/impact-engine';
+import { getDownloadedFilesByProject } from '@/lib/drive-engine';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,9 +11,14 @@ export async function GET(request: NextRequest) {
     const mode = searchParams.get('mode') || 'summary';
 
     if (mode === 'raw') {
-      // Return all raw rows
+      // Return all raw rows, enriched with the count of locally downloaded files.
       const rows = db.prepare('SELECT * FROM projects ORDER BY review_date DESC').all() as DbRow[];
-      return NextResponse.json({ projects: rows.map(mapRowToProject) });
+      const fileCounts = getDownloadedFilesByProject();
+      const projects = rows.map(row => ({
+        ...mapRowToProject(row),
+        filesDownloaded: fileCounts.get(row.project_id) || 0,
+      }));
+      return NextResponse.json({ projects });
     }
 
     // Default: delegate to the Impact engine so the views see the same set as Impact

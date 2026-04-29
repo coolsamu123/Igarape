@@ -1,8 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDb } from './db';
 import { scanProjects, type ScannedProject } from './goals-scanner';
 import { extractAllTexts } from './goals-extractor';
 import { getPrompts } from './prompts';
+import { generateContent } from './llm';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -81,13 +81,7 @@ export function initGoalsSchema() {
   `);
 }
 
-// ─── Gemini ─────────────────────────────────────────────────────────────────
-
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set in .env.local');
-  return new GoogleGenerativeAI(apiKey);
-}
+// ─── Prompts ────────────────────────────────────────────────────────────────
 
 function buildGoalsPrompt(project: ScannedProject, documentText: string): string {
   const { goalsPrompt } = getPrompts();
@@ -123,11 +117,19 @@ async function analyzeProject(project: ScannedProject): Promise<void> {
   const db = getDb();
   initGoalsSchema();
 
-  // Skip already successful projects
+  // Decide whether to (re)analyze this project.
+  // Skip on success (already done), and skip on partial/error when the file
+  // list is unchanged from the last attempt — otherwise the every-5-min auto
+  // cycle keeps re-spending the daily LLM cap on inputs that won't yield a
+  // different answer. Re-analysis kicks in as soon as new files are synced.
   const existing = db.prepare(
-    "SELECT status FROM project_goals WHERE project_id = ? AND status = 'success'"
-  ).get(project.projectId) as { status: string } | undefined;
-  if (existing) {
+    "SELECT status, source_files FROM project_goals WHERE project_id = ?"
+  ).get(project.projectId) as { status: string; source_files: string } | undefined;
+  if (existing?.status === 'success') {
+    runStatus.successCount++;
+    return;
+  }
+  if (existing && existing.source_files === JSON.stringify(project.files)) {
     runStatus.successCount++;
     return;
   }
@@ -155,13 +157,9 @@ async function analyzeProject(project: ScannedProject): Promise<void> {
     return;
   }
 
-  // Call Gemini
+  // Call LLM
   const prompt = buildGoalsPrompt(project, documentText);
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
-
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.text();
+  const { text: responseText } = await generateContent({ prompt, model: 'pro', context: 'goals' });
   const parsed = parseGoalsResponse(responseText);
 
   const fields = [

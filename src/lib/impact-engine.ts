@@ -1,9 +1,9 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from './db';
 import { extractTags } from './similarity';
 import { getProjectDocuments } from './drive-engine';
 import { getPrompts } from './prompts';
+import { generateContent } from './llm';
 import type { CIOOProject, CIOOService, ProjectImpact, ProjectSummary, ImpactAnalysisStatus } from './types';
 
 // ─── Module-level state for tracking analysis progress ───────────────────────
@@ -33,14 +33,6 @@ let analysisStatus: ImpactAnalysisStatus = {
   currentBatchDDS: '',
   errors: [],
 };
-
-// ─── Gemini client ───────────────────────────────────────────────────────────
-
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set in .env.local');
-  return new GoogleGenerativeAI(apiKey);
-}
 
 // ─── Fetch all project summaries from DB ─────────────────────────────────────
 
@@ -507,16 +499,7 @@ function storeImpacts(impacts: RawImpact[], batchId: string): number {
 async function processBatch(batch: Batch, batchId: string): Promise<number> {
   const prompt = buildImpactPrompt(batch.projects);
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    generationConfig: {
-      responseMimeType: 'application/json',
-    },
-  });
-
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
+  const { text } = await generateContent({ prompt, model: 'fast', json: true, context: 'impact' });
 
   console.log(`[Impact] Batch "${batch.label}" (${batch.projects.length} projects) — response length: ${text.length}, preview: ${text.slice(0, 200)}`);
 

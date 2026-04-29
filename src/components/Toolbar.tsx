@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { useProjectContext } from '@/context/ProjectContext';
 
 export default function Toolbar() {
-  const { projects, filtered, links, view, threshold, setThreshold, filters, setFilters } = useProjectContext();
+  const { projects, filtered, links, filters, setFilters } = useProjectContext();
 
   const ddsList = useMemo(() => {
     const vals = new Set(projects.map(p => p.dds).filter(Boolean));
@@ -83,21 +83,6 @@ export default function Toolbar() {
         onChange={e => setFilters({ ...filters, search: e.target.value })}
         className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-3 py-1 text-[13px] focus:outline-none focus:border-blue-500 w-48"
       />
-
-      {view === 'graph' && (
-        <label className="flex items-center gap-2 text-xs text-gray-400 ml-2">
-          Similarity:
-          <strong className="text-gray-200 w-8">{Math.round(threshold * 100)}%</strong>
-          <input
-            type="range"
-            min={0}
-            max={90}
-            value={Math.round(threshold * 100)}
-            onChange={e => setThreshold(Number(e.target.value) / 100)}
-            className="w-24"
-          />
-        </label>
-      )}
 
       <div className="flex-1" />
       <span className="text-xs text-gray-500">

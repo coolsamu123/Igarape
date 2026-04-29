@@ -22,8 +22,11 @@ export default function Home() {
     refreshProjects();
   }, [refreshProjects]);
 
-  // Show upload screen if no projects loaded
-  if (!isLoading && projects.length === 0) {
+  // Show upload screen if no projects loaded — but let the user navigate to
+  // views that don't need project data (Drive Sync, Goals, ArchFlow), so they
+  // can populate the database from the UI instead of being stuck on FileUpload.
+  const VIEWS_OK_WHEN_EMPTY: typeof view[] = ['drive', 'goals', 'archflow'];
+  if (!isLoading && projects.length === 0 && !VIEWS_OK_WHEN_EMPTY.includes(view)) {
     return (
       <div className="min-h-screen flex flex-col bg-[#0a0e1a]">
         <Header />

@@ -100,16 +100,6 @@ export function extractDriveId(url: string): string | null {
 }
 
 
-// ─── Check if URL already cached successfully ───────────────────────────────
-
-function isUrlCached(url: string): boolean {
-  const db = getDb();
-  const row = db.prepare(
-    `SELECT fetch_status FROM documents_cache WHERE url = ? AND fetch_status = 'success'`
-  ).get(url) as { fetch_status: string } | undefined;
-  return !!row;
-}
-
 // ─── Download a single file ─────────────────────────────────────────────────
 
 async function downloadFile(
@@ -575,29 +565,24 @@ export async function runDriveDownload(): Promise<void> {
       GROUP BY p.project_id
     `).all() as { project_id: string; name: string; link_folder: string; link_positions: string; link_cioo: string }[];
 
-    // Collect all unique URLs per project, skip already-cached URLs
+    // Collect all unique URLs per project. We do NOT skip URLs based on the
+    // documents_cache row — folders can gain new files over time, and a partial
+    // download (e.g. PDFs through but Google-Workspace exports failed) used to
+    // become permanent. Per-file idempotency is already provided by the
+    // fs.existsSync(localPath) guard inside downloadFile().
     const projectUrls: { projectId: string; name: string; urls: string[]; isLocal: boolean[] }[] = [];
-    let skippedCached = 0;
     for (const row of rows) {
       const urls: string[] = [];
       const isLocal: boolean[] = [];
       const rawLinks = [row.link_folder, row.link_positions, row.link_cioo].join(' ').split(/\s+/);
-    for (const link of rawLinks) {
+      for (const link of rawLinks) {
         if (!link) continue;
         if (link.startsWith('https://drive.google.com')) {
-          if (isUrlCached(link)) {
-            skippedCached++;
-          } else {
-            urls.push(link);
-            isLocal.push(false);
-          }
-        } else if (link.startsWith('/')) { // Local path
-          if (isUrlCached(link)) {
-            skippedCached++;
-          } else {
-            urls.push(link);
-            isLocal.push(true);
-          }
+          urls.push(link);
+          isLocal.push(false);
+        } else if (link.startsWith('/')) {
+          urls.push(link);
+          isLocal.push(true);
         }
       }
       if (urls.length > 0) {
@@ -606,7 +591,7 @@ export async function runDriveDownload(): Promise<void> {
     }
 
     downloadStatus.totalUrls = projectUrls.reduce((sum, p) => sum + p.urls.length, 0);
-    downloadStatus.skippedFiles = skippedCached;
+    downloadStatus.skippedFiles = 0;
 
     if (downloadStatus.totalUrls === 0) {
       downloadStatus.currentProject = 'Complete (all files already cached)';
@@ -753,6 +738,39 @@ export function getProjectLocalPath(projectId: string): string | null {
   return path.join(DRIVE_LOCAL_ROOT, match);
 }
 
+// ─── Count downloaded files per project ─────────────────────────────────────
+
+const DOWNLOADABLE_EXTS = new Set(['.docx', '.xlsx', '.pdf', '.txt', '.csv']);
+
+function countFilesRecursive(dir: string): number {
+  let count = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      count += countFilesRecursive(full);
+    } else if (DOWNLOADABLE_EXTS.has(path.extname(entry.name).toLowerCase())) {
+      count++;
+    }
+  }
+  return count;
+}
+
+export function getDownloadedFilesByProject(): Map<string, number> {
+  const result = new Map<string, number>();
+  if (!fs.existsSync(DRIVE_LOCAL_ROOT)) return result;
+
+  for (const entry of fs.readdirSync(DRIVE_LOCAL_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const m = entry.name.match(/^(PRJ[0-9]+)/i);
+    if (!m) continue;
+    const projectId = m[1].toUpperCase();
+    const count = countFilesRecursive(path.join(DRIVE_LOCAL_ROOT, entry.name));
+    result.set(projectId, (result.get(projectId) || 0) + count);
+  }
+
+  return result;
+}
+
 // ─── Reset all downloaded data ────────────────────────────────────────────────
 
 export function resetDriveData(): void {
@@ -808,9 +826,15 @@ export function getAllDocumentTexts(): Map<string, string> {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function sanitizeFilename(name: string): string {
-  return name
+  // Preserve the extension when truncating, otherwise long filenames lose their
+  // type marker (e.g. ".pdf" → ".pd") and downstream extension allowlists drop them.
+  const ext = path.extname(name);
+  const stem = ext ? name.slice(0, name.length - ext.length) : name;
+  const cleanStem = stem
     .replace(/[<>:"/\\|?*]/g, '_')
     .replace(/\s+/g, '_')
-    .replace(/_+/g, '_')
-    .slice(0, 100);
+    .replace(/_+/g, '_');
+  const cleanExt = ext.replace(/[<>:"/\\|?*]/g, '_');
+  const maxStemLen = Math.max(1, 120 - cleanExt.length);
+  return cleanStem.slice(0, maxStemLen) + cleanExt;
 }

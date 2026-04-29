@@ -50,10 +50,33 @@ export function parseCost(raw: string | number | null | undefined): number | nul
     return parseFloat(s.replace(/m$/i, '')) * 1000;
   }
 
-  // Remove commas and parse
-  s = s.replace(/,/g, '');
-  const n = parseFloat(s);
+  // Locale-aware comma handling.
+  // - "1,200.5"   → period present, treat commas as thousands     → 1200.5
+  // - "1.200,50"  → both present and comma after period → European → 1200.50
+  // - "1177,2"    → single comma + 1-2 digits after    → European decimal → 1177.2
+  // - "12,500"    → single comma + 3 digits after      → English thousands → 12500
+  // - "1,234,567" → multiple commas                    → English thousands → 1234567
+  if (s.includes(',') && s.includes('.')) {
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+      // European: "1.234,56"
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // English: "1,234.56"
+      s = s.replace(/,/g, '');
+    }
+  } else if (s.includes(',')) {
+    const commas = s.match(/,/g)!.length;
+    const afterLast = s.length - s.lastIndexOf(',') - 1;
+    if (commas === 1 && afterLast > 0 && afterLast <= 2) {
+      // European decimal like "1177,2"
+      s = s.replace(',', '.');
+    } else {
+      // English thousands like "12,500" or "1,234,567"
+      s = s.replace(/,/g, '');
+    }
+  }
 
+  const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
 

@@ -1,13 +1,7 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from 'crypto';
 import { getDb } from './db';
+import { generateContent } from './llm';
 import type { ProjectSummary, AnalysisResult } from './types';
-
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not set in .env.local');
-  return new GoogleGenerativeAI(apiKey);
-}
 
 // ─── Pairwise Intersection Analysis ─────────────────────────────────────────
 
@@ -18,17 +12,11 @@ export async function analyzePairwise(
   const prompt = buildPairwisePrompt(projectA, projectB);
   const hash = hashPrompt(prompt);
 
-  // Check cache
   const cached = getCachedAnalysis(hash);
   if (cached) return cached;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-
-  const parsed = parseGeminiResponse(text);
+  const { text, modelUsed } = await generateContent({ prompt, model: 'fast', context: 'pairwise' });
+  const parsed = parseLLMResponse(text);
   const analysis: AnalysisResult = {
     id: 0,
     analysisType: 'pairwise',
@@ -39,12 +27,10 @@ export async function analyzePairwise(
     recommendations: parsed.recommendations || [],
     similarityScore: parsed.similarityScore || 0,
     createdAt: new Date().toISOString(),
-    modelUsed: 'gemini-2.0-flash',
+    modelUsed,
   };
 
-  // Cache result
   cacheAnalysis(hash, 'pairwise', analysis, prompt);
-
   return analysis;
 }
 
@@ -59,12 +45,8 @@ export async function analyzeCluster(
   const cached = getCachedAnalysis(hash);
   if (cached) return cached;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-  const parsed = parseGeminiResponse(text);
+  const { text, modelUsed } = await generateContent({ prompt, model: 'fast', context: 'cluster' });
+  const parsed = parseLLMResponse(text);
 
   const analysis: AnalysisResult = {
     id: 0,
@@ -76,7 +58,7 @@ export async function analyzeCluster(
     recommendations: parsed.recommendations || [],
     similarityScore: parsed.similarityScore || 0,
     createdAt: new Date().toISOString(),
-    modelUsed: 'gemini-2.0-flash',
+    modelUsed,
   };
 
   cacheAnalysis(hash, 'cluster', analysis, prompt);
@@ -95,12 +77,8 @@ export async function analyzeWithDocuments(
   const cached = getCachedAnalysis(hash);
   if (cached) return cached;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-  const parsed = parseGeminiResponse(text);
+  const { text, modelUsed } = await generateContent({ prompt, model: 'fast', context: 'document' });
+  const parsed = parseLLMResponse(text);
 
   const analysis: AnalysisResult = {
     id: 0,
@@ -112,7 +90,7 @@ export async function analyzeWithDocuments(
     recommendations: parsed.recommendations || [],
     similarityScore: parsed.similarityScore || 0,
     createdAt: new Date().toISOString(),
-    modelUsed: 'gemini-2.0-flash',
+    modelUsed,
   };
 
   cacheAnalysis(hash, 'document', analysis, prompt);
@@ -231,7 +209,7 @@ Return ONLY a JSON object (no markdown, no code fences):
 
 // ─── Response Parser ────────────────────────────────────────────────────────
 
-function parseGeminiResponse(text: string): {
+function parseLLMResponse(text: string): {
   themes: string[];
   synergies: string[];
   risks: string[];
@@ -239,16 +217,12 @@ function parseGeminiResponse(text: string): {
   similarityScore: number;
 } {
   try {
-    // Remove code fences if present
     let clean = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-
-    // Find the JSON object
     const start = clean.indexOf('{');
     const end = clean.lastIndexOf('}');
     if (start >= 0 && end > start) {
       clean = clean.slice(start, end + 1);
     }
-
     return JSON.parse(clean);
   } catch {
     return {
@@ -264,7 +238,8 @@ function parseGeminiResponse(text: string): {
 // ─── Cache Operations ───────────────────────────────────────────────────────
 
 function hashPrompt(prompt: string): string {
-  return crypto.createHash('sha256').update(prompt).digest('hex');
+  const provider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  return crypto.createHash('sha256').update(`${provider}::${prompt}`).digest('hex');
 }
 
 function getCachedAnalysis(hash: string): AnalysisResult | null {

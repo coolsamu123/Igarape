@@ -32,21 +32,6 @@ export default function ImpactView() {
   const [isStarting, setIsStarting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
 
-  type ImpactTab = 'results' | 'preview';
-  const [activeTab, setActiveTab] = useState<ImpactTab>('results');
-
-  interface PreviewData {
-    query: string;
-    columns: string[];
-    rowCount: number;
-    rows: Record<string, unknown>[];
-    groupedRowCount: number;
-    generatedAt: string;
-  }
-  const [preview, setPreview] = useState<PreviewData | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-
   const loadData = useCallback(async () => {
     try {
       const res = await fetch('/api/impact');
@@ -57,36 +42,8 @@ export default function ImpactView() {
     } catch { /* ignore */ }
   }, []);
 
-  const loadPreview = useCallback(async () => {
-    setPreviewLoading(true);
-    setPreviewError(null);
-    try {
-      const res = await fetch('/api/impact/preview');
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load preview');
-      setPreview({
-        query: data.query,
-        columns: data.columns,
-        rowCount: data.rowCount,
-        rows: data.rows,
-        groupedRowCount: data.groupedRowCount,
-        generatedAt: data.generatedAt,
-      });
-    } catch (e: unknown) {
-      setPreviewError(e instanceof Error ? e.message : 'Failed to load preview');
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, []);
-
   // Initial load
   useEffect(() => { loadData(); }, [loadData]);
-
-  useEffect(() => { loadPreview(); }, [loadPreview]);
-
-  useEffect(() => {
-    if (activeTab === 'preview') loadPreview();
-  }, [activeTab, loadPreview]);
 
   // Poll while running
   useEffect(() => {
@@ -103,13 +60,12 @@ export default function ImpactView() {
           setStatus(data.status);
           if (!data.status.isRunning) {
             loadData();
-            loadPreview();
           }
         }
       } catch { /* ignore */ }
     }, 2000);
     return () => clearInterval(interval);
-  }, [status?.isRunning, loadData, loadPreview]);
+  }, [status?.isRunning, loadData]);
 
   const startAnalysis = async () => {
     setIsStarting(true);
@@ -208,30 +164,6 @@ export default function ImpactView() {
 
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
-      <div className="flex gap-1 mb-4 border-b border-gray-800">
-        <button
-          onClick={() => setActiveTab('results')}
-          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
-            activeTab === 'results'
-              ? 'bg-gray-900 text-gray-100 border border-gray-800 border-b-transparent'
-              : 'text-gray-400 hover:text-gray-200'
-          }`}
-        >
-          Results{stats ? ` (${stats.total})` : ''}
-        </button>
-        <button
-          onClick={() => setActiveTab('preview')}
-          className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors ${
-            activeTab === 'preview'
-              ? 'bg-gray-900 text-gray-100 border border-gray-800 border-b-transparent'
-              : 'text-gray-400 hover:text-gray-200'
-          }`}
-        >
-          Query Preview{preview ? ` (${preview.rowCount})` : ''}
-        </button>
-      </div>
-
-      {activeTab === 'results' && (
       <>
       {/* Status / Launch bar */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
@@ -413,93 +345,6 @@ export default function ImpactView() {
         </div>
       )}
       </>
-      )}
-
-      {activeTab === 'preview' && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800 bg-gray-800/30">
-            <div className="flex items-start justify-between gap-4 mb-3">
-              <div>
-                <h2 className="text-lg font-bold text-gray-100">Query Preview</h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  Exact rows pulled from the SELECT that feeds the impact analysis engine. Auto-refreshes when a run completes.
-                </p>
-              </div>
-              <button
-                onClick={loadPreview}
-                disabled={previewLoading}
-                className="px-4 py-2 rounded-lg bg-gray-800 text-gray-200 text-sm font-semibold hover:bg-gray-700 transition-colors disabled:opacity-40 shrink-0"
-              >
-                {previewLoading ? 'Loading...' : 'Refresh'}
-              </button>
-            </div>
-            {preview && (
-              <div className="text-xs text-gray-500 flex gap-4 flex-wrap">
-                <span><span className="text-gray-300 font-mono">{preview.rowCount}</span> raw rows</span>
-                <span>→ <span className="text-gray-300 font-mono">{preview.groupedRowCount}</span> projects sent to Gemini (after grouping)</span>
-                <span>Loaded: <span className="text-gray-400">{preview.generatedAt}</span></span>
-              </div>
-            )}
-            {previewError && (
-              <div className="mt-3 text-sm text-red-400 bg-red-900/20 px-3 py-2 rounded border border-red-900/50">
-                {previewError}
-              </div>
-            )}
-          </div>
-
-          {preview && (
-            <details className="border-b border-gray-800 bg-gray-950/50">
-              <summary className="px-5 py-2 text-xs text-gray-400 cursor-pointer hover:text-gray-200 select-none">
-                View SQL source
-              </summary>
-              <pre className="px-5 py-3 text-[11px] text-gray-300 font-mono whitespace-pre-wrap overflow-x-auto">{preview.query}</pre>
-            </details>
-          )}
-
-          <div className="overflow-auto" style={{ maxHeight: '65vh' }}>
-            {preview && preview.columns.length > 0 ? (
-              <table className="text-left text-xs border-collapse" style={{ minWidth: 'max-content' }}>
-                <thead className="bg-gray-900 text-gray-400 uppercase border-b border-gray-800 sticky top-0 z-10">
-                  <tr>
-                    {preview.columns.map(c => (
-                      <th
-                        key={c}
-                        className="px-3 py-2 font-medium whitespace-nowrap border-r border-gray-800 last:border-r-0"
-                        title={c}
-                      >
-                        {c}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-800">
-                  {preview.rows.map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-800/30 transition-colors">
-                      {preview.columns.map(c => {
-                        const v = row[c];
-                        const display = v === null || v === undefined ? '' : String(v);
-                        return (
-                          <td
-                            key={c}
-                            className="px-3 py-2 text-gray-300 whitespace-nowrap border-r border-gray-800 last:border-r-0 max-w-[320px] overflow-hidden text-ellipsis"
-                            title={display}
-                          >
-                            {display}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="px-5 py-12 text-center text-gray-500 text-sm">
-                {previewLoading ? 'Loading query preview...' : 'No rows returned by the query.'}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
