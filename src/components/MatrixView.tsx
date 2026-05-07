@@ -7,7 +7,7 @@ import type { ProjectSummary, CIOOProject } from '@/lib/types';
 
 
 export default function MatrixView() {
-  const { filtered, links, setSelected, setView } = useProjectContext();
+  const { filteredWithSignal: filtered, links, setSelected, setView } = useProjectContext();
 
   // Matrix projects including targets from links
   const matrixProjects = useMemo(() => {

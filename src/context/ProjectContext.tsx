@@ -13,6 +13,10 @@ interface ProjectContextType {
   stats: Record<string, unknown> | null;
   isLoading: boolean;
   error: string | null;
+  // Set of project IDs that have a successful goal extraction. Graph/Matrix views
+  // filter on this; Timeline keeps the full set. Projects without goals (e.g. those
+  // listed in CIOO but with no Drive folder linked) are excluded.
+  signalProjectIds: Set<string>;
 
   // UI State
   view: ViewType;
@@ -28,6 +32,9 @@ interface ProjectContextType {
 
   // Filtered data
   filtered: ProjectSummary[];
+  // Same as `filtered` but also drops projects without any goals/impacts signal.
+  // Used by Graph and Matrix; Timeline still uses `filtered`.
+  filteredWithSignal: ProjectSummary[];
 
   // Actions
   uploadFile: (file: File) => Promise<{ count: number; errors: string[] }>;
@@ -61,11 +68,22 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     search: '',
   });
   const [analysisResults, setAnalysisResults] = useState<Map<string, AnalysisResult>>(new Map());
+  const [goalsProjectIds, setGoalsProjectIds] = useState<Set<string>>(new Set());
 
-  // Initial fetch of impacts
+  // Initial fetch of impacts + which projects have successful goals.
   useEffect(() => {
     fetch('/api/impact').then(r => r.json()).then(d => d.impacts && setImpacts(d.impacts)).catch(() => {});
+    fetch('/api/goals').then(r => r.json()).then(d => {
+      if (!Array.isArray(d?.goals)) return;
+      const ids = new Set<string>();
+      for (const g of d.goals as Array<{ project_id?: string; status?: string }>) {
+        if (g.project_id && g.status === 'success') ids.add(g.project_id);
+      }
+      setGoalsProjectIds(ids);
+    }).catch(() => {});
   }, []);
+
+  const signalProjectIds = useMemo(() => new Set(goalsProjectIds), [goalsProjectIds]);
 
   const filtered = useMemo(() => {
     return projects.filter(p => {
@@ -92,20 +110,34 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     });
   }, [projects, filters]);
 
+  const filteredWithSignal = useMemo(
+    () => filtered.filter(p => signalProjectIds.has(p.projectId)),
+    [filtered, signalProjectIds]
+  );
+
   const links = useMemo(() => {
     const globalFilteredIds = new Set(filtered.map(p => p.projectId));
 
+    // An endpoint is eligible only if it has goals (or is the virtual GIO_SERVICES
+    // aggregator). This keeps no-goal projects out of Graph/Matrix even when they
+    // are referenced as a target of someone else's impact.
+    const isEligible = (id: string) =>
+      goalsProjectIds.has(id) ||
+      (id === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO'));
+
     const matchedImpacts = impacts.filter(imp => {
+      if (!isEligible(imp.sourceProjectId) || !isEligible(imp.targetProjectId)) return false;
+
       let isSourceVisible = globalFilteredIds.has(imp.sourceProjectId);
       let isTargetVisible = globalFilteredIds.has(imp.targetProjectId);
-      
+
       if (imp.targetProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
         isTargetVisible = true;
       }
       if (imp.sourceProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
         isSourceVisible = true;
       }
-      
+
       return isSourceVisible || isTargetVisible;
     });
 
@@ -120,7 +152,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         aiAnalyzed: true
       };
     });
-  }, [impacts, filtered, filters.dds]);
+  }, [impacts, filtered, filters.dds, goalsProjectIds]);
 
   const uploadFile = useCallback(async (file: File) => {
     setIsLoading(true);
@@ -202,9 +234,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   return (
     <ProjectContext.Provider value={{
       projects, setProjects, links, impacts, setImpacts, stats, isLoading, error,
+      signalProjectIds,
       view, setView, selected, setSelected, hovered, setHovered,
       threshold, setThreshold, filters, setFilters,
-      filtered, uploadFile, refreshProjects,
+      filtered, filteredWithSignal, uploadFile, refreshProjects,
       analyzeProjects, analyzeWithDocs, analysisResults,
     }}>
       {children}

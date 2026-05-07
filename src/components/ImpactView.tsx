@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProjectContext } from '@/context/ProjectContext';
 import { getDDSColor } from '@/lib/constants';
+import LoadingState from './LoadingState';
 import type { ProjectImpact, ImpactAnalysisStatus } from '@/lib/types';
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -27,10 +28,12 @@ export default function ImpactView() {
   const [status, setStatus] = useState<ImpactAnalysisStatus | null>(null);
   const [stats, setStats] = useState<{ total: number; bySeverity: Record<string, number>; byType: Record<string, number>; byDirection: Record<string, number> } | null>(null);
   const [filterSeverity, setFilterSeverity] = useState('All');
-  const [filterType, setFilterType] = useState('All');
+  const [filterGioService, setFilterGioService] = useState('All');
+  const [filterImpactType, setFilterImpactType] = useState('All');
   const [filterProject, setFilterProject] = useState('');
   const [isStarting, setIsStarting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
@@ -40,6 +43,7 @@ export default function ImpactView() {
       if (data.stats) setStats(data.stats);
       if (data.status) setStatus(data.status);
     } catch { /* ignore */ }
+    setLoading(false);
   }, []);
 
   // Initial load
@@ -127,12 +131,17 @@ export default function ImpactView() {
 
       // Apply local impact-specific filters
       if (filterSeverity !== 'All' && imp.severity !== filterSeverity) return false;
-      
-      if (filterType !== 'All') {
-        const svc = filterType.replace('GIO_', '');
+
+      if (filterGioService !== 'All') {
+        const svc = filterGioService.replace('GIO_', '');
         if (!imp.gioServices?.includes(svc)) return false;
       }
-      
+
+      if (filterImpactType !== 'All') {
+        const types = imp.impactTypes ?? [imp.impactType];
+        if (!types.includes(filterImpactType)) return false;
+      }
+
       if (filterProject) {
         const s = filterProject.toLowerCase();
         const srcName = projects.find(p => p.projectId === imp.sourceProjectId)?.name || '';
@@ -145,7 +154,7 @@ export default function ImpactView() {
       }
       return true;
     });
-  }, [impacts, filterSeverity, filterType, filterProject, projects, globalFilteredProjects, filters.dds]);
+  }, [impacts, filterSeverity, filterGioService, filterImpactType, filterProject, projects, globalFilteredProjects, filters.dds]);
 
   const projectMap = useMemo(() => {
     const m = new Map<string, { name: string; dds: string }>();
@@ -154,13 +163,21 @@ export default function ImpactView() {
   }, [projects]);
 
   const filterOptions = useMemo(() => {
-    const types = new Set(impacts.map(i => i.impactType));
-    const gioSvc = new Set(impacts.flatMap(i => i.gioServices || []));
+    const types = new Set<string>();
+    const gioSvc = new Set<string>();
+    for (const i of impacts) {
+      for (const t of i.impactTypes ?? [i.impactType]) types.add(t);
+      for (const s of i.gioServices ?? []) gioSvc.add(s);
+    }
     return {
       impactTypes: Array.from(types).sort(),
       gioServices: Array.from(gioSvc).sort(),
     };
   }, [impacts]);
+
+  if (loading) {
+    return <LoadingState />;
+  }
 
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
@@ -254,13 +271,23 @@ export default function ImpactView() {
             <option value="low">Low</option>
           </select>
           <select
-            value={filterType}
-            onChange={e => setFilterType(e.target.value)}
+            value={filterGioService}
+            onChange={e => setFilterGioService(e.target.value)}
             className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
           >
             <option value="All">All GIO Services</option>
             {filterOptions.gioServices.map(s => (
               <option key={`GIO_${s}`} value={`GIO_${s}`}>{s}</option>
+            ))}
+          </select>
+          <select
+            value={filterImpactType}
+            onChange={e => setFilterImpactType(e.target.value)}
+            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
+          >
+            <option value="All">All Impact Types</option>
+            {filterOptions.impactTypes.map(t => (
+              <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
             ))}
           </select>
           <input
@@ -295,14 +322,24 @@ export default function ImpactView() {
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ background: sevColor }} />
                     <span className="text-[13px] font-semibold text-gray-100">
-                      {DIRECTION_LABELS[imp.direction] || imp.direction} → {tgtName}
+                      {DIRECTION_LABELS[imp.direction] || imp.direction} {imp.bidirectional ? '↔' : '→'} {tgtName}
                     </span>
+                    {imp.count && imp.count > 1 && (
+                      <span className="text-[10px] text-gray-500" title={`${imp.count} raw rows merged`}>
+                        ·{' '}{imp.count} sub-relations
+                      </span>
+                    )}
                   </div>
-                  <div className="flex gap-1.5 shrink-0">
+                  <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
                     <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold"
                       style={{ background: `${sevColor}22`, color: sevColor }}>
                       {imp.severity}
                     </span>
+                    {(imp.impactTypes ?? [imp.impactType]).map(t => (
+                      <span key={t} className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-900/30 text-blue-300 border border-blue-800/50">
+                        {t.replace(/_/g, ' ')}
+                      </span>
+                    ))}
                     {imp.gioServices && imp.gioServices.map(svc => (
                       <span key={svc} className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-900/30 text-purple-300 border border-purple-800/50">
                         {svc}

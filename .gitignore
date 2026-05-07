@@ -47,3 +47,6 @@ next-env.d.ts
 /fix_lint*.js
 /patch_*.js
 /test_*.js
+
+# logs
+/logs/

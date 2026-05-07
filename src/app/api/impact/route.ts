@@ -3,29 +3,39 @@ import {
   runFullImpactAnalysis,
   getImpactStatus,
   getAllImpacts,
+  aggregateImpacts,
   clearAllImpacts,
 } from '@/lib/impact-engine';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const impacts = getAllImpacts();
+    const { searchParams } = new URL(request.url);
+    const raw = searchParams.get('raw') === '1';
+
+    const rawImpacts = getAllImpacts();
+    const impacts = raw ? rawImpacts : aggregateImpacts(rawImpacts);
     const status = getImpactStatus();
 
-    // Compute stats
+    // Stats reflect the returned set (one entry per pair when aggregated).
     const bySeverity: Record<string, number> = {};
     const byType: Record<string, number> = {};
     const byDirection: Record<string, number> = {};
 
     for (const imp of impacts) {
       bySeverity[imp.severity] = (bySeverity[imp.severity] || 0) + 1;
-      byType[imp.impactType] = (byType[imp.impactType] || 0) + 1;
-      byDirection[imp.direction] = (byDirection[imp.direction] || 0) + 1;
+      for (const t of imp.impactTypes ?? [imp.impactType]) {
+        byType[t] = (byType[t] || 0) + 1;
+      }
+      for (const d of imp.directions ?? [imp.direction]) {
+        byDirection[d] = (byDirection[d] || 0) + 1;
+      }
     }
 
     return NextResponse.json({
       impacts,
       stats: {
         total: impacts.length,
+        rawTotal: rawImpacts.length,
         bySeverity,
         byType,
         byDirection,

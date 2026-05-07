@@ -8,7 +8,7 @@ import AIAnalysisPanel from './AIAnalysisPanel';
 import type { ProjectSummary, CIOOProject } from '@/lib/types';
 
 export default function GraphView() {
-  const { filtered, links, selected, setSelected, hovered, setHovered } = useProjectContext();
+  const { filteredWithSignal: filtered, links, selected, setSelected, hovered, setHovered } = useProjectContext();
   const graphRef = useRef<HTMLDivElement>(null);
   const [graphSize, setGraphSize] = useState({ w: 900, h: 560 });
 
@@ -67,6 +67,9 @@ export default function GraphView() {
   useEffect(() => {
     const obs = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
+      // Skip when hidden (display:none → 0×0) so the force layout doesn't
+      // reset the moment the user switches away from this tab.
+      if (width === 0 || height === 0) return;
       setGraphSize({ w: width, h: height });
     });
     if (graphRef.current) obs.observe(graphRef.current);

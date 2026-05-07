@@ -644,6 +644,67 @@ interface ImpactDbRow {
   gio_services: string;
 }
 
+// ─── Aggregation ─────────────────────────────────────────────────────────────
+// Raw rows in `projects_impact` are granular: the same pair of projects can
+// appear up to N times — once per `impact_type`, plus duplicates for bidirectional
+// edges (A→B and B→A). For dashboard views this fragmentation inflates the count
+// and clutters the UI. `aggregateImpacts` collapses every raw row sharing the
+// same unordered pair into a single representative entry, preserving the full
+// detail in the *plural* fields (impactTypes, directions, explanations).
+
+const SEVERITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+export function aggregateImpacts(rows: ProjectImpact[]): ProjectImpact[] {
+  const groups = new Map<string, ProjectImpact[]>();
+  for (const r of rows) {
+    const a = r.sourceProjectId;
+    const b = r.targetProjectId;
+    const key = a < b ? `${a}__${b}` : `${b}__${a}`;
+    const arr = groups.get(key) ?? [];
+    arr.push(r);
+    groups.set(key, arr);
+  }
+
+  const uniqSorted = (xs: string[]) => Array.from(new Set(xs.filter(Boolean))).sort();
+
+  const out: ProjectImpact[] = [];
+  for (const arr of groups.values()) {
+    // Primary = highest severity, longest explanation as tiebreaker. Used to
+    // pick the orientation (source/target) and the headline explanation.
+    const primary = [...arr].sort((x, y) => {
+      const dr = (SEVERITY_RANK[y.severity] ?? 0) - (SEVERITY_RANK[x.severity] ?? 0);
+      if (dr !== 0) return dr;
+      return (y.explanation?.length ?? 0) - (x.explanation?.length ?? 0);
+    })[0];
+
+    const distinctSources = new Set(arr.map(r => r.sourceProjectId));
+
+    out.push({
+      id: primary.id,
+      sourceProjectId: primary.sourceProjectId,
+      targetProjectId: primary.targetProjectId,
+      impactType: primary.impactType,
+      direction: primary.direction,
+      severity: primary.severity,
+      explanation: primary.explanation,
+      batchId: primary.batchId,
+      createdAt: primary.createdAt,
+      gioServices: uniqSorted(arr.flatMap(r => r.gioServices ?? [])),
+      impactTypes: uniqSorted(arr.map(r => r.impactType)),
+      directions: uniqSorted(arr.map(r => r.direction)),
+      explanations: arr.map(r => r.explanation).filter(Boolean),
+      count: arr.length,
+      bidirectional: distinctSources.size > 1,
+    });
+  }
+
+  return out.sort((x, y) => {
+    const dr = (SEVERITY_RANK[y.severity] ?? 0) - (SEVERITY_RANK[x.severity] ?? 0);
+    if (dr !== 0) return dr;
+    return (y.count ?? 1) - (x.count ?? 1);
+  });
+}
+
 function mapImpactRow(row: ImpactDbRow): ProjectImpact {
   let parsedGio: string[] = [];
   try {

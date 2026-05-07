@@ -129,6 +129,16 @@ export interface ProjectImpact {
   createdAt: string;
   // GIO specific flags parsed from JSON (JSON array stored in DB)
   gioServices?: string[];
+  // ─── Aggregation extras ───
+  // When the API returns aggregated rows (default), one row represents all raw
+  // edges between the same pair of projects (regardless of direction). The
+  // singular fields above carry the "primary" (highest-severity) row's values;
+  // the fields below describe the full set merged into this entry.
+  impactTypes?: string[];   // union of all impact_type values for this pair
+  directions?: string[];    // union of all directions seen
+  explanations?: string[];  // every raw explanation (primary first)
+  count?: number;           // number of raw rows merged
+  bidirectional?: boolean;  // true if both A→B and B→A had raw rows
 }
 
 export interface ImpactAnalysisStatus {

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import LoadingState from './LoadingState';
 
 interface ProjectGoals {
   id: number;
@@ -238,7 +239,7 @@ export default function GoalsView() {
 
         {/* Table */}
         {loading ? (
-          <div className="text-center py-12 text-gray-500">Loading...</div>
+          <LoadingState />
         ) : filtered.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             {goals.length === 0
