@@ -4,6 +4,7 @@ import { extractTags } from './similarity';
 import { getProjectDocuments } from './drive-engine';
 import { getPrompts } from './prompts';
 import { generateContent } from './llm';
+import { normalizeDdsList } from './dds-catalog';
 import type { CIOOProject, CIOOService, ProjectImpact, ProjectSummary, ImpactAnalysisStatus } from './types';
 
 // ─── Module-level state for tracking analysis progress ───────────────────────
@@ -427,6 +428,7 @@ interface RawImpact {
   severity: string;
   explanation: string;
   gio_services?: string[];
+  dds_entities?: string[];
 }
 
 function parseImpactResponse(text: string): RawImpact[] {
@@ -456,6 +458,7 @@ function parseImpactResponse(text: string): RawImpact[] {
       severity: (item.severity || item.level || 'medium') as string,
       explanation: (item.explanation || item.reason || item.description || '') as string,
       gio_services: Array.isArray(item.gio_services) ? item.gio_services as string[] : [],
+      dds_entities: normalizeDdsList(item.dds_entities ?? item.ddsEntities ?? item.dds),
     })).filter(item => item.source && item.target) as RawImpact[];
   } catch (err) {
     console.error('[Impact] Failed to parse Gemini response:', (err as Error).message, '— raw:', text.slice(0, 500));
@@ -469,8 +472,8 @@ function storeImpacts(impacts: RawImpact[], batchId: string): number {
   const db = getDb();
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO projects_impact
-    (source_project_id, target_project_id, impact_type, direction, severity, explanation, batch_id, gio_services)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    (source_project_id, target_project_id, impact_type, direction, severity, explanation, batch_id, gio_services, dds_entities)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let inserted = 0;
@@ -484,7 +487,8 @@ function storeImpacts(impacts: RawImpact[], batchId: string): number {
         item.severity,
         item.explanation || '',
         batchId,
-        JSON.stringify(item.gio_services || [])
+        JSON.stringify(item.gio_services || []),
+        JSON.stringify(item.dds_entities || [])
       );
       if (result.changes > 0) inserted++;
     }
@@ -642,6 +646,7 @@ interface ImpactDbRow {
   batch_id: string;
   created_at: string;
   gio_services: string;
+  dds_entities: string;
 }
 
 // ─── Aggregation ─────────────────────────────────────────────────────────────
@@ -690,6 +695,7 @@ export function aggregateImpacts(rows: ProjectImpact[]): ProjectImpact[] {
       batchId: primary.batchId,
       createdAt: primary.createdAt,
       gioServices: uniqSorted(arr.flatMap(r => r.gioServices ?? [])),
+      ddsEntities: uniqSorted(arr.flatMap(r => r.ddsEntities ?? [])),
       impactTypes: uniqSorted(arr.map(r => r.impactType)),
       directions: uniqSorted(arr.map(r => r.direction)),
       explanations: arr.map(r => r.explanation).filter(Boolean),
@@ -710,7 +716,11 @@ function mapImpactRow(row: ImpactDbRow): ProjectImpact {
   try {
     parsedGio = row.gio_services ? JSON.parse(row.gio_services) : [];
   } catch { /* ignore */ }
-  
+  let parsedDds: string[] = [];
+  try {
+    parsedDds = row.dds_entities ? JSON.parse(row.dds_entities) : [];
+  } catch { /* ignore */ }
+
   return {
     id: row.id,
     sourceProjectId: row.source_project_id,
@@ -722,6 +732,7 @@ function mapImpactRow(row: ImpactDbRow): ProjectImpact {
     batchId: row.batch_id,
     createdAt: row.created_at,
     gioServices: parsedGio,
+    ddsEntities: parsedDds,
   };
 }
 

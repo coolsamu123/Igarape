@@ -61,6 +61,25 @@ If a project's description, technology, or "GIO Impacts" indicates it will proba
 - "severity": "high" or "medium"
 - "explanation": Briefly explain exactly which GIO service is needed. Incorporate specific details from 'GIO Impacts', 'GIO Workload', 'Security Impacts', and 'Business Apps/CIs' directly into your explanation string to provide maximum context.
 - "gio_services": A list containing any of these exact strings that apply: ["Security & Compliance", "Command Center", "User Workplace", "Site Infrastructure", "Cloud Services"]. Leave empty [] if target is not GIO_SERVICES.
+- "dds_entities": [] (leave empty for GIO_SERVICES rows)
+
+CRITICAL - DDS / ENTITY IMPACTS:
+Air Liquide projects also impact DDS (Digital & Data Solutions) entities — geographic zones, business divisions, and functional app groups. The CANONICAL list of DDS entities is (use these EXACT strings, do not invent variations):
+- Geographic zones: "Americas", "Europe", "APAC", "AMEI"
+- Business divisions / SBUs: "CF", "GM&T", "E&C", "HC D&IT", "Alizent", "GDO", "SEPPIC", "Airgas", "HHC"
+- App / functional groups: "Industrial Apps", "Enterprise Apps", "Data & AI Apps", "Digital Factory", "InnoTech", "CDIO Office", "IDD"
+
+If the project's "Regional Impacts", "GIO/SL/DDS Impacts", "DDS/GIO Workload", or "Change Management" fields indicate that one or more DDS entities will be affected (rollout phase, FTE allocation, change management coordination, regional adoption, integration with division apps, etc.), you MUST create an additional impact relationship with:
+- "source": The Project ID
+- "target": "DDS_IMPACTS"
+- "impact_type": one of [regional_rollout, organizational, resource_contention, integration_required]
+- "direction": one of [requires_coordination, blocks, enables, shares_resource]
+- "severity": "high" / "medium" / "low" depending on magnitude (number of FTEs, rollout scope, business criticality)
+- "explanation": 1-2 sentences explaining WHY each listed DDS entity is impacted. Pull specifics directly from "Regional Impacts", "GIO/SL/DDS Impacts", "DDS/GIO Workload" — name the rollout phase, FTE estimate, division app affected, etc.
+- "dds_entities": Array of one or more EXACT canonical DDS names from the list above. Leave [] if target is not DDS_IMPACTS.
+- "gio_services": [] (leave empty for DDS_IMPACTS rows)
+
+NOTE: A single project can produce BOTH a GIO_SERVICES row AND a DDS_IMPACTS row (and project-to-project rows). Emit them as separate JSON entries.
 
 PROJECTS:
 {{PROJECTS_LIST}}
@@ -68,15 +87,19 @@ PROJECTS:
 IMPORTANT: You MUST return a JSON array. Find at least the obvious connections.
 Each object must have these exact fields:
 - "source": project ID (e.g. "PRJ0004517")
-- "target": project ID or "GIO_SERVICES"
-- "impact_type": one of [technology_dependency, infrastructure_shared, data_dependency, timeline_blocking, resource_contention, organizational, platform_shared, vendor_shared, integration_required, security_dependency]
+- "target": project ID OR "GIO_SERVICES" OR "DDS_IMPACTS"
+- "impact_type": one of [technology_dependency, infrastructure_shared, data_dependency, timeline_blocking, resource_contention, organizational, platform_shared, vendor_shared, integration_required, security_dependency, regional_rollout]
 - "direction": one of [blocks, enables, shares_resource, feeds_data, competes_with, requires_coordination]
 - "severity": one of [high, medium, low]
 - "explanation": 1-2 sentences why
-- "gio_services": array of strings (e.g., ["Cloud Services", "Security & Compliance", "User Workplace"]). Leave empty [] if target is not GIO_SERVICES.
+- "gio_services": array of strings — only populated when target="GIO_SERVICES", else []
+- "dds_entities": array of strings — only populated when target="DDS_IMPACTS", else []
 
-Return ONLY a JSON array. Example:
-[{"source":"PRJ0001234","target":"GIO_SERVICES","impact_type":"infrastructure_shared","direction":"requires_coordination","severity":"high","explanation":"Project requires AWS Landing Zone and CARM/OKTA integration.","gio_services":["Cloud Services", "Security & Compliance"]}]`;
+Return ONLY a JSON array. Examples:
+[
+  {"source":"PRJ0001234","target":"GIO_SERVICES","impact_type":"infrastructure_shared","direction":"requires_coordination","severity":"high","explanation":"Project requires AWS Landing Zone and CARM/OKTA integration.","gio_services":["Cloud Services","Security & Compliance"],"dds_entities":[]},
+  {"source":"PRJ0001234","target":"DDS_IMPACTS","impact_type":"regional_rollout","direction":"requires_coordination","severity":"high","explanation":"Phase-2 rollout covers Americas and APAC; DDS Europe owns the IT zone for go-live and will absorb 40 FTE-days of change management.","gio_services":[],"dds_entities":["Americas","APAC","Europe"]}
+]`;
 
 export interface PromptsConfig {
   goalsPrompt: string;

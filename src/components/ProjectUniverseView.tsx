@@ -1,0 +1,704 @@
+'use client';
+
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import ReactFlow, {
+  Background,
+  Controls,
+  MarkerType,
+  Position,
+  Handle,
+  type Edge,
+  type Node,
+  type EdgeProps,
+  BaseEdge,
+  getBezierPath,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import { useProjectContext } from '@/context/ProjectContext';
+import { getDDSColor } from '@/lib/constants';
+import LoadingState from './LoadingState';
+import EvidencePanel, { DeepDiveButton } from './EvidencePanel';
+
+// ─── Data shapes (mirror /api/impact/project/universe response) ──────────────
+
+interface PseudoNodeImpact {
+  impactId: number;
+  severity: string;
+  direction: string;
+  impactTypes: string[];
+  explanations: string[];
+  explanation: string;
+}
+
+interface PseudoNode {
+  name: string;
+  severity: string;
+  impacts: PseudoNodeImpact[];
+}
+
+interface ProjectEdgeData {
+  otherProjectId: string;
+  otherProjectName: string;
+  otherProjectDds: string;
+  severity: string;
+  direction: string;
+  impactTypes: string[];
+  explanations: string[];
+  explanation: string;
+  count: number;
+  bidirectional: boolean;
+}
+
+interface CenterProject {
+  projectId: string;
+  name: string;
+  dds: string;
+  currentGate: string;
+  costKEur: number | null;
+  description: string;
+}
+
+interface UniverseResponse {
+  project: CenterProject;
+  gioNodes: PseudoNode[];
+  ddsNodes: PseudoNode[];
+  projectEdges: ProjectEdgeData[];
+  stats: {
+    gioCount: number;
+    ddsCount: number;
+    projectCount: number;
+    totalImpacts: number;
+  };
+}
+
+// ─── Visual constants ────────────────────────────────────────────────────────
+
+const SEVERITY_COLOR: Record<string, string> = {
+  high: '#ef4444',
+  medium: '#f59e0b',
+  low: '#6b7280',
+};
+
+const SEVERITY_GLOW: Record<string, string> = {
+  high: 'rgba(239, 68, 68, 0.5)',
+  medium: 'rgba(245, 158, 11, 0.4)',
+  low: 'rgba(107, 114, 128, 0.3)',
+};
+
+const GIO_COLOR = '#a855f7';     // purple — GIO services
+const GIO_GLOW = 'rgba(168, 85, 247, 0.4)';
+
+// ─── Edge details (what the side panel shows when you click a link) ──────────
+
+interface EdgeDetails {
+  category: 'gio' | 'dds' | 'project';
+  // Bare target name when category is 'gio' or 'dds' (e.g., 'Cloud Services',
+  // 'Americas'). Used to feed the deep-dive endpoint.
+  targetName: string;
+  title: string;
+  subtitle: string;
+  color: string;
+  severity: string;
+  direction: string;
+  impactTypes: string[];
+  explanations: string[];
+}
+
+// Custom edge that draws a thicker hit-area for easier clicking + the visible stroke
+function ClickableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, data, markerEnd }: EdgeProps) {
+  const [edgePath] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const stroke = (style?.stroke as string) || '#6b7280';
+  const strokeWidth = (style?.strokeWidth as number) || 1.5;
+  const isSelected = (data as { isSelected?: boolean } | undefined)?.isSelected;
+  return (
+    <>
+      {/* invisible wide path for easier clicks */}
+      <path d={edgePath} fill="none" stroke="transparent" strokeWidth={18} style={{ cursor: 'pointer' }} />
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} style={{
+        ...style,
+        stroke,
+        strokeWidth: isSelected ? strokeWidth + 1.5 : strokeWidth,
+        filter: isSelected ? `drop-shadow(0 0 6px ${stroke})` : 'none',
+        opacity: isSelected ? 1 : 0.85,
+      }} />
+    </>
+  );
+}
+
+const edgeTypes = { clickable: ClickableEdge };
+
+// ─── Node components ─────────────────────────────────────────────────────────
+
+function CenterNode({ data }: { data: { project: CenterProject } }) {
+  const { project } = data;
+  const ddsColor = project.dds ? getDDSColor(project.dds) : '#475569';
+  return (
+    <div
+      className="rounded-2xl px-5 py-4 border-2 shadow-2xl relative"
+      style={{
+        minWidth: 260,
+        background: 'radial-gradient(circle at 30% 20%, #1e293b 0%, #0f172a 100%)',
+        borderColor: ddsColor,
+        boxShadow: `0 0 32px ${ddsColor}55, 0 0 80px ${ddsColor}22`,
+      }}
+    >
+      {/* Single source handle in the center; react-flow draws to it from any angle */}
+      <Handle type="source" position={Position.Right} style={{ opacity: 0, pointerEvents: 'none', top: '50%' }} />
+      <div className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">{project.projectId}</div>
+      <div className="text-base font-bold text-gray-50 leading-snug mb-2">{project.name}</div>
+      <div className="flex gap-2 flex-wrap">
+        {project.dds && (
+          <span className="px-2 py-0.5 rounded text-[10px] font-bold text-white" style={{ background: ddsColor }}>
+            {project.dds}
+          </span>
+        )}
+        {project.currentGate && (
+          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-900/60 text-blue-200 border border-blue-800">
+            Gate {project.currentGate}
+          </span>
+        )}
+        {project.costKEur !== null && project.costKEur > 0 && (
+          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-900/60 text-emerald-200 border border-emerald-800">
+            {project.costKEur}k€
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PseudoCircleNode({ data }: { data: { label: string; sublabel?: string; color: string; glow: string; severity: string } }) {
+  return (
+    <div
+      className="rounded-full flex flex-col items-center justify-center text-center font-semibold border-2 backdrop-blur-sm relative"
+      style={{
+        width: 110, height: 110,
+        background: `radial-gradient(circle at 30% 25%, ${data.color}33 0%, ${data.color}11 60%, transparent 100%)`,
+        borderColor: data.color,
+        boxShadow: `0 0 18px ${data.glow}`,
+        color: '#f1f5f9',
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: 'none', top: '50%' }} />
+      <div className="text-[11px] leading-tight px-1.5">{data.label}</div>
+      {data.sublabel && (
+        <div className="text-[9px] text-gray-400 mt-0.5">{data.sublabel}</div>
+      )}
+      <div
+        className="absolute -top-1 -right-1 w-3 h-3 rounded-full border border-gray-900"
+        style={{ background: SEVERITY_COLOR[data.severity] || '#6b7280' }}
+        title={`severity: ${data.severity}`}
+      />
+    </div>
+  );
+}
+
+function ProjectSatelliteNode({ data }: { data: { label: string; sublabel: string; ddsColor: string; severity: string; onClick?: () => void } }) {
+  return (
+    <div
+      onClick={data.onClick}
+      className="rounded-lg px-3 py-2 border-2 hover:scale-105 transition-transform cursor-pointer relative"
+      style={{
+        minWidth: 160, maxWidth: 200,
+        background: '#0f172a',
+        borderColor: data.ddsColor,
+        boxShadow: `0 0 14px ${data.ddsColor}44`,
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: 'none', top: '50%' }} />
+      <div className="text-[11px] font-semibold text-gray-100 truncate" title={data.label}>{data.label}</div>
+      <div className="flex items-center gap-1.5 mt-1">
+        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded text-white" style={{ background: data.ddsColor }}>
+          {data.sublabel}
+        </span>
+        <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+          style={{ background: `${SEVERITY_COLOR[data.severity] || '#6b7280'}33`, color: SEVERITY_COLOR[data.severity] || '#6b7280' }}>
+          {data.severity}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = {
+  center: CenterNode,
+  pseudo: PseudoCircleNode,
+  satellite: ProjectSatelliteNode,
+};
+
+// ─── Layout helper: distribute around center ─────────────────────────────────
+
+interface LayoutItem<T> {
+  id: string;
+  payload: T;
+}
+
+function radialLayout<T>(
+  items: LayoutItem<T>[],
+  centerX: number, centerY: number,
+  radius: number,
+  startAngle: number, endAngle: number
+): { id: string; x: number; y: number; payload: T }[] {
+  if (items.length === 0) return [];
+  if (items.length === 1) {
+    const angle = (startAngle + endAngle) / 2;
+    return [{
+      id: items[0].id,
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+      payload: items[0].payload,
+    }];
+  }
+  const span = endAngle - startAngle;
+  const step = span / (items.length - 1);
+  return items.map((it, i) => {
+    const angle = startAngle + step * i;
+    return {
+      id: it.id,
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+      payload: it.payload,
+    };
+  });
+}
+
+// ─── Main component ──────────────────────────────────────────────────────────
+
+export default function ProjectUniverseView() {
+  const { focusedProjectId, closeUniverse, openUniverse } = useProjectContext();
+  const [data, setData] = useState<UniverseResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'reason' | 'evidence'>('reason');
+  const [panelWidth, setPanelWidth] = useState(420);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Drag handle for resizable side panel. Tracks viewport-relative mouse X.
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (e: MouseEvent) => {
+      const w = window.innerWidth - e.clientX;
+      setPanelWidth(Math.min(900, Math.max(280, w)));
+    };
+    const onUp = () => setIsResizing(false);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isResizing]);
+
+  // When a new edge is selected, reset the active tab to "reason" so the user
+  // sees the explanation first, not the previously-open tab.
+  useEffect(() => { setActiveTab('reason'); }, [selectedEdgeId]);
+
+  useEffect(() => {
+    if (!focusedProjectId) return;
+    setLoading(true);
+    setError(null);
+    setSelectedEdgeId(null);
+    fetch(`/api/impact/project/universe?projectId=${encodeURIComponent(focusedProjectId)}`)
+      .then(async r => {
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error || 'Failed to load Universe');
+        return json as UniverseResponse;
+      })
+      .then(json => { setData(json); setLoading(false); })
+      .catch(err => { setError(err.message); setLoading(false); });
+  }, [focusedProjectId]);
+
+  const { nodes, edges, edgeDetailsMap } = useMemo<{ nodes: Node[]; edges: Edge[]; edgeDetailsMap: Map<string, EdgeDetails> }>(() => {
+    if (!data) return { nodes: [], edges: [], edgeDetailsMap: new Map() };
+
+    const detailsMap = new Map<string, EdgeDetails>();
+    const out: { nodes: Node[]; edges: Edge[] } = { nodes: [], edges: [] };
+
+    const cx = 0, cy = 0;
+    const RADIUS_INNER = 360;
+    const RADIUS_OUTER = 580;
+
+    // Center node
+    out.nodes.push({
+      id: 'center',
+      type: 'center',
+      position: { x: cx - 130, y: cy - 50 },
+      data: { project: data.project },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      draggable: false,
+      selectable: false,
+    });
+
+    // GIO nodes — upper arc (left half-top)
+    const gioLayout = radialLayout(
+      data.gioNodes.map(n => ({ id: `gio-${n.name}`, payload: n })),
+      cx, cy, RADIUS_INNER,
+      Math.PI * 1.15, Math.PI * 1.85, // upper arc
+    );
+    for (const item of gioLayout) {
+      const node = item.payload;
+      out.nodes.push({
+        id: item.id,
+        type: 'pseudo',
+        position: { x: item.x - 55, y: item.y - 55 },
+        data: { label: node.name, sublabel: 'GIO', color: GIO_COLOR, glow: GIO_GLOW, severity: node.severity },
+        draggable: false,
+      });
+
+      const edgeId = `edge-${item.id}`;
+      const sevColor = SEVERITY_COLOR[node.severity] || '#6b7280';
+      const primary = node.impacts[0];
+      out.edges.push({
+        id: edgeId,
+        source: 'center',
+        target: item.id,
+        type: 'clickable',
+        animated: node.severity === 'high',
+        style: { stroke: sevColor, strokeWidth: 1 + Math.min(3, node.impacts.length) },
+        markerEnd: { type: MarkerType.ArrowClosed, color: sevColor, width: 14, height: 14 },
+        data: { isSelected: false },
+      });
+
+      detailsMap.set(edgeId, {
+        category: 'gio',
+        targetName: node.name,
+        title: `GIO Service · ${node.name}`,
+        subtitle: `${node.impacts.length} impact relationship${node.impacts.length > 1 ? 's' : ''} between ${data.project.projectId} and this service line`,
+        color: GIO_COLOR,
+        severity: node.severity,
+        direction: primary.direction,
+        impactTypes: Array.from(new Set(node.impacts.flatMap(i => i.impactTypes))),
+        explanations: Array.from(new Set(node.impacts.flatMap(i => i.explanations).filter(Boolean))),
+      });
+    }
+
+    // DDS nodes — lower arc (left half-bottom)
+    const ddsLayout = radialLayout(
+      data.ddsNodes.map(n => ({ id: `dds-${n.name}`, payload: n })),
+      cx, cy, RADIUS_INNER,
+      Math.PI * 0.15, Math.PI * 0.85, // lower arc
+    );
+    for (const item of ddsLayout) {
+      const node = item.payload;
+      const ddsColor = getDDSColor(node.name);
+      out.nodes.push({
+        id: item.id,
+        type: 'pseudo',
+        position: { x: item.x - 55, y: item.y - 55 },
+        data: { label: node.name, sublabel: 'DDS', color: ddsColor, glow: `${ddsColor}55`, severity: node.severity },
+        draggable: false,
+      });
+
+      const edgeId = `edge-${item.id}`;
+      const sevColor = SEVERITY_COLOR[node.severity] || '#6b7280';
+      const primary = node.impacts[0];
+      out.edges.push({
+        id: edgeId,
+        source: 'center',
+        target: item.id,
+        type: 'clickable',
+        animated: node.severity === 'high',
+        style: { stroke: sevColor, strokeWidth: 1 + Math.min(3, node.impacts.length) },
+        markerEnd: { type: MarkerType.ArrowClosed, color: sevColor, width: 14, height: 14 },
+        data: { isSelected: false },
+      });
+
+      detailsMap.set(edgeId, {
+        category: 'dds',
+        targetName: node.name,
+        title: `DDS Entity · ${node.name}`,
+        subtitle: `${node.impacts.length} impact${node.impacts.length > 1 ? 's' : ''} on this DDS entity`,
+        color: ddsColor,
+        severity: node.severity,
+        direction: primary.direction,
+        impactTypes: Array.from(new Set(node.impacts.flatMap(i => i.impactTypes))),
+        explanations: Array.from(new Set(node.impacts.flatMap(i => i.explanations).filter(Boolean))),
+      });
+    }
+
+    // Project-to-project edges — outer ring, right side
+    const projLayout = radialLayout(
+      data.projectEdges.map(e => ({ id: `proj-${e.otherProjectId}`, payload: e })),
+      cx, cy, RADIUS_OUTER,
+      -Math.PI * 0.45, Math.PI * 0.45, // right side
+    );
+    for (const item of projLayout) {
+      const edge = item.payload;
+      const ddsColor = edge.otherProjectDds ? getDDSColor(edge.otherProjectDds) : '#475569';
+      out.nodes.push({
+        id: item.id,
+        type: 'satellite',
+        position: { x: item.x - 90, y: item.y - 25 },
+        data: {
+          label: edge.otherProjectName,
+          sublabel: edge.otherProjectDds || '?',
+          ddsColor,
+          severity: edge.severity,
+          onClick: () => openUniverse(edge.otherProjectId),
+        },
+        draggable: false,
+      });
+
+      const edgeId = `edge-${item.id}`;
+      const sevColor = SEVERITY_COLOR[edge.severity] || '#6b7280';
+      out.edges.push({
+        id: edgeId,
+        source: 'center',
+        target: item.id,
+        type: 'clickable',
+        animated: edge.severity === 'high',
+        style: { stroke: sevColor, strokeWidth: 1 + Math.min(3, edge.count) },
+        markerEnd: edge.bidirectional ? undefined : { type: MarkerType.ArrowClosed, color: sevColor, width: 14, height: 14 },
+        markerStart: edge.bidirectional ? { type: MarkerType.ArrowClosed, color: sevColor, width: 14, height: 14 } : undefined,
+        data: { isSelected: false },
+      });
+
+      detailsMap.set(edgeId, {
+        category: 'project',
+        targetName: edge.otherProjectId,
+        title: `${edge.otherProjectName}`,
+        subtitle: `${edge.otherProjectId} · ${edge.bidirectional ? 'bidirectional' : edge.direction} · ${edge.count} relation${edge.count > 1 ? 's' : ''}`,
+        color: ddsColor,
+        severity: edge.severity,
+        direction: edge.direction,
+        impactTypes: edge.impactTypes,
+        explanations: edge.explanations.length > 0 ? edge.explanations : [edge.explanation].filter(Boolean),
+      });
+    }
+
+    return { ...out, edgeDetailsMap: detailsMap };
+  }, [data, openUniverse]);
+
+  // Apply selection visual to edges
+  const decoratedEdges = useMemo(() => edges.map(e => ({
+    ...e,
+    data: { ...(e.data as object), isSelected: e.id === selectedEdgeId },
+  })), [edges, selectedEdgeId]);
+
+  const onEdgeClick = useCallback((_: React.MouseEvent, edge: Edge) => {
+    setSelectedEdgeId(prev => prev === edge.id ? null : edge.id);
+  }, []);
+
+  // Clicking a node opens the same details panel as clicking its edge.
+  // For pseudo (gio/dds), the corresponding edge id is `edge-${node.id}`.
+  // For project satellites, trigger the navigation closure on the node.
+  const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    if (node.type !== 'pseudo' && node.type !== 'satellite') return;
+    if (node.type === 'satellite') {
+      const onClickFn = (node.data as { onClick?: () => void } | undefined)?.onClick;
+      if (onClickFn) onClickFn();
+      return;
+    }
+    const edgeId = `edge-${node.id}`;
+    setSelectedEdgeId(prev => prev === edgeId ? null : edgeId);
+  }, []);
+
+  const selectedDetails = selectedEdgeId ? edgeDetailsMap.get(selectedEdgeId) : null;
+
+  if (!focusedProjectId) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-gray-500">
+        Nenhum projeto selecionado.
+      </div>
+    );
+  }
+
+  if (loading) return <LoadingState label="Carregando Universe..." />;
+  if (error) return <div className="flex-1 flex items-center justify-center text-red-400">{error}</div>;
+  if (!data) return null;
+
+  return (
+    <div className="flex-1 flex flex-col bg-[#06080f] animate-fadeIn">
+      {/* Top bar */}
+      <div className="px-5 py-3 border-b border-gray-800/80 flex items-center gap-4 bg-[#0a0e1a]">
+        <button
+          onClick={closeUniverse}
+          className="px-3 py-1.5 rounded-md border border-gray-700 text-gray-300 text-[12px] hover:bg-gray-800 transition-colors"
+        >
+          ← Voltar
+        </button>
+        <div className="flex-1">
+          <div className="text-[10px] uppercase tracking-widest text-gray-500">Project Universe</div>
+          <div className="text-sm font-bold text-gray-100 truncate">{data.project.name}</div>
+        </div>
+        <div className="flex gap-3 text-xs text-gray-400">
+          <Stat label="GIO Services" value={data.stats.gioCount} color={GIO_COLOR} />
+          <Stat label="DDS Entities" value={data.stats.ddsCount} color="#06b6d4" />
+          <Stat label="Projects" value={data.stats.projectCount} color="#22c55e" />
+        </div>
+      </div>
+
+      {/* Canvas + side panel */}
+      <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 relative">
+          <ReactFlow
+            nodes={nodes}
+            edges={decoratedEdges}
+            edgeTypes={edgeTypes}
+            nodeTypes={nodeTypes}
+            onEdgeClick={onEdgeClick}
+            onNodeClick={onNodeClick}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.3}
+            maxZoom={2}
+            proOptions={{ hideAttribution: true }}
+            defaultEdgeOptions={{ type: 'clickable' }}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+          >
+            <Background gap={32} size={1} color="#1e293b" />
+            <Controls className="!bg-gray-900 !border-gray-700" showInteractive={false} />
+          </ReactFlow>
+
+          {data.stats.totalImpacts === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="bg-gray-900/80 border border-gray-800 rounded-xl px-6 py-4 text-center">
+                <div className="text-2xl mb-2">🛰️</div>
+                <div className="text-sm text-gray-300 font-semibold">Sem impactos analisados ainda</div>
+                <div className="text-xs text-gray-500 mt-1">Rode o Impact Analysis pra popular o universo deste projeto.</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Drag handle (resize) */}
+        <div
+          onMouseDown={() => setIsResizing(true)}
+          className={`w-1.5 cursor-col-resize bg-gray-800/40 hover:bg-blue-500/60 transition-colors shrink-0 ${isResizing ? 'bg-blue-500/80' : ''}`}
+          title="Drag to resize"
+        />
+
+        {/* Side panel */}
+        <div
+          className="border-l border-gray-800/80 bg-[#0a0e1a] flex flex-col shrink-0"
+          style={{ width: panelWidth }}
+        >
+          {!selectedDetails && (
+            <div className="p-5 text-xs text-gray-500 leading-relaxed overflow-y-auto">
+              <div className="text-sm font-semibold text-gray-300 mb-2">How to read</div>
+              <ul className="space-y-2 list-disc pl-4">
+                <li><span className="text-purple-400 font-semibold">Purple</span> — GIO Service Lines impacted</li>
+                <li><span className="text-cyan-400 font-semibold">DDS colors</span> — entities / divisions impacted</li>
+                <li><span className="text-emerald-400 font-semibold">Right side</span> — related projects</li>
+                <li>Line thickness = number of relations; color = severity.</li>
+              </ul>
+              <div className="mt-4 text-[11px] text-gray-500">
+                Click any line or node to see the AI explanation.
+              </div>
+            </div>
+          )}
+
+          {selectedDetails && (
+            <>
+              {/* Header (always visible) */}
+              <div className="px-5 pt-4 pb-3 border-b border-gray-800/70 animate-fadeIn">
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">
+                  {selectedDetails.category === 'gio' ? 'GIO Service' : selectedDetails.category === 'dds' ? 'DDS Entity' : 'Project'}
+                </div>
+                <div className="text-base font-bold text-gray-100 leading-snug" style={{ color: selectedDetails.color }}>
+                  {selectedDetails.title}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">{selectedDetails.subtitle}</div>
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  <Badge label={selectedDetails.severity} bg={`${SEVERITY_COLOR[selectedDetails.severity]}33`} fg={SEVERITY_COLOR[selectedDetails.severity]} />
+                  {selectedDetails.impactTypes.map(t => (
+                    <Badge key={t} label={t.replace(/_/g, ' ')} bg="#1e3a8a55" fg="#93c5fd" />
+                  ))}
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex border-b border-gray-800/70 shrink-0">
+                <TabButton active={activeTab === 'reason'} onClick={() => setActiveTab('reason')}>Reason</TabButton>
+                {focusedProjectId && (selectedDetails.category === 'gio' || selectedDetails.category === 'dds') && (
+                  <TabButton active={activeTab === 'evidence'} onClick={() => setActiveTab('evidence')}>Evidence</TabButton>
+                )}
+              </div>
+
+              {/* Tab body */}
+              <div className="flex-1 overflow-y-auto p-5">
+                {activeTab === 'reason' && (
+                  <div className="animate-fadeIn">
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Reason for the impact</div>
+                    <div className="space-y-2">
+                      {selectedDetails.explanations.map((exp, i) => (
+                        <div key={i} className="text-xs text-gray-200 leading-relaxed bg-gray-900/60 border border-gray-800 rounded-md p-3">
+                          {exp}
+                        </div>
+                      ))}
+                      {selectedDetails.explanations.length === 0 && (
+                        <div className="text-xs text-gray-500 italic">No explanation on record.</div>
+                      )}
+                    </div>
+
+                    {focusedProjectId && (selectedDetails.category === 'gio' || selectedDetails.category === 'dds') && (
+                      <div className="mt-5">
+                        <DeepDiveButton
+                          projectId={focusedProjectId}
+                          kind={selectedDetails.category}
+                          target={selectedDetails.targetName}
+                          compact={false}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'evidence' && focusedProjectId && (selectedDetails.category === 'gio' || selectedDetails.category === 'dds') && (
+                  <div className="animate-fadeIn">
+                    <EvidencePanel
+                      projectId={focusedProjectId}
+                      highlight={selectedDetails.category}
+                      compact
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+        active
+          ? 'text-blue-300 border-b-2 border-blue-500 bg-gray-900/40'
+          : 'text-gray-500 hover:text-gray-300 hover:bg-gray-900/30 border-b-2 border-transparent'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="w-2 h-2 rounded-full" style={{ background: color }} />
+      <span className="text-gray-500">{label}:</span>
+      <span className="font-bold text-gray-200 font-mono">{value}</span>
+    </div>
+  );
+}
+
+function Badge({ label, bg, fg }: { label: string; bg: string; fg: string }) {
+  return (
+    <span className="text-[10px] font-semibold px-2 py-0.5 rounded" style={{ background: bg, color: fg }}>
+      {label}
+    </span>
+  );
+}

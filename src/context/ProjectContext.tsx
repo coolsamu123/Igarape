@@ -23,6 +23,10 @@ interface ProjectContextType {
   setView: (v: ViewType) => void;
   selected: string | null;
   setSelected: (id: string | null) => void;
+  // Project focused in the Universe view (null when no Universe is open).
+  focusedProjectId: string | null;
+  openUniverse: (projectId: string) => void;
+  closeUniverse: () => void;
   hovered: string | null;
   setHovered: (id: string | null) => void;
   threshold: number;
@@ -56,6 +60,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const [view, setView] = useState<ViewType>('detail');
+  const [previousView, setPreviousView] = useState<ViewType>('impact');
+  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [threshold, setThreshold] = useState(0.15);
@@ -231,11 +237,23 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return data.analysis as AnalysisResult;
   }, []);
 
+  const openUniverse = useCallback((projectId: string) => {
+    setPreviousView(prev => (view !== 'universe' ? view : prev));
+    setFocusedProjectId(projectId);
+    setView('universe');
+  }, [view]);
+
+  const closeUniverse = useCallback(() => {
+    setFocusedProjectId(null);
+    setView(previousView);
+  }, [previousView]);
+
   return (
     <ProjectContext.Provider value={{
       projects, setProjects, links, impacts, setImpacts, stats, isLoading, error,
       signalProjectIds,
       view, setView, selected, setSelected, hovered, setHovered,
+      focusedProjectId, openUniverse, closeUniverse,
       threshold, setThreshold, filters, setFilters,
       filtered, filteredWithSignal, uploadFile, refreshProjects,
       analyzeProjects, analyzeWithDocs, analysisResults,

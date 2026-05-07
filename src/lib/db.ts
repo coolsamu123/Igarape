@@ -176,10 +176,31 @@ function initSchema(db: Database.Database) {
       value      TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS impact_deep_dives (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id    TEXT NOT NULL,
+      kind          TEXT NOT NULL,
+      target        TEXT NOT NULL,
+      response_md   TEXT NOT NULL,
+      llm_provider  TEXT NOT NULL,
+      llm_model     TEXT NOT NULL,
+      generated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      source_sig    TEXT NOT NULL,
+      duration_ms   INTEGER,
+      UNIQUE(project_id, kind, target)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_deep_dives_project ON impact_deep_dives(project_id);
   `);
 
   try {
     db.exec('ALTER TABLE projects_impact ADD COLUMN gio_services TEXT DEFAULT "[]"');
+  } catch {
+    // Ignore if column already exists
+  }
+  try {
+    db.exec('ALTER TABLE projects_impact ADD COLUMN dds_entities TEXT DEFAULT "[]"');
   } catch {
     // Ignore if column already exists
   }

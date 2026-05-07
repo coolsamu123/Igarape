@@ -11,7 +11,7 @@ const NAV_ITEMS: { key: ViewType; label: string }[] = [
   { key: 'impact', label: '→ Impact' },
   { key: 'goals', label: '✦ Goals Extractor' },
   { key: 'drive', label: '☁ Drive Sync' },
-  { key: 'archflow', label: '⟳ ArchFlow' },
+  { key: 'strom', label: '⟳ Strom' },
 ];
 
 export default function Header() {

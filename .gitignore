@@ -37,6 +37,8 @@ next-env.d.ts
 
 # data (SQLite + uploaded files)
 /data/cioo.db
+/data/cioo.db-wal
+/data/cioo.db-shm
 /data/uploads/
 /data/service-account.json
 /data/drive/

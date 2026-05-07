@@ -12,12 +12,13 @@ import DetailView from '@/components/DetailView';
 import ImpactView from '@/components/ImpactView';
 import GoalsView from '@/components/GoalsView';
 import DriveView from '@/components/DriveView';
-import ArchFlowView from '@/components/ArchFlowView';
+import StromView from '@/components/StromView';
+import ProjectUniverseView from '@/components/ProjectUniverseView';
 import LoadingState from '@/components/LoadingState';
 import type { ViewType } from '@/lib/types';
 
 const TOOLBAR_VIEWS: ViewType[] = ['graph', 'matrix', 'timeline', 'detail', 'impact'];
-const VIEWS_OK_WHEN_EMPTY: ViewType[] = ['drive', 'goals', 'archflow'];
+const VIEWS_OK_WHEN_EMPTY: ViewType[] = ['drive', 'goals', 'strom', 'universe'];
 
 export default function Home() {
   const { projects, view, setView, refreshProjects, isLoading } = useProjectContext();
@@ -89,8 +90,11 @@ export default function Home() {
         {visited.has('drive') && (
           <div className={view === 'drive' ? 'contents' : 'hidden'}><DriveView /></div>
         )}
-        {visited.has('archflow') && (
-          <div className={view === 'archflow' ? 'contents' : 'hidden'}><ArchFlowView /></div>
+        {visited.has('strom') && (
+          <div className={view === 'strom' ? 'contents' : 'hidden'}><StromView /></div>
+        )}
+        {visited.has('universe') && (
+          <div className={view === 'universe' ? 'contents' : 'hidden'}><ProjectUniverseView /></div>
         )}
 
         <div className={showToolbar ? 'contents' : 'hidden'}><Sidebar /></div>

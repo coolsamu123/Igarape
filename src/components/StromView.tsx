@@ -126,7 +126,7 @@ function colorizeSql(sql: string) {
   });
 }
 
-export default function ArchFlowView() {
+export default function StromView() {
   const [prompts, setPrompts] = useState({ goalsPrompt: '', impactPrompt: '' });
   const [isEditingGoals, setIsEditingGoals] = useState(false);
   const [isEditingImpact, setIsEditingImpact] = useState(false);
@@ -161,7 +161,7 @@ export default function ArchFlowView() {
     <div className="flex-1 overflow-auto bg-[#0a0e1a] p-8 text-gray-200">
       <div className="max-w-5xl mx-auto">
         <div className="mb-12 text-center">
-          <h1 className="text-3xl font-bold text-white mb-4">CIOO Intelligence Pipeline Architecture</h1>
+          <h1 className="text-3xl font-bold text-white mb-4">Strom - Pipeline Architecture</h1>
           <p className="text-gray-400">
             A comprehensive overview of how data flows from external systems, gets analyzed by AI, and produces portfolio insights.
           </p>

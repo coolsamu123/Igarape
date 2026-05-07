@@ -3,7 +3,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProjectContext } from '@/context/ProjectContext';
 import { getDDSColor } from '@/lib/constants';
+import { DDS_CATALOG } from '@/lib/dds-catalog';
 import LoadingState from './LoadingState';
+import EvidencePanel from './EvidencePanel';
 import type { ProjectImpact, ImpactAnalysisStatus } from '@/lib/types';
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -23,14 +25,16 @@ const DIRECTION_LABELS: Record<string, string> = {
 
 
 export default function ImpactView() {
-  const { projects, filtered: globalFilteredProjects, filters } = useProjectContext();
+  const { projects, filtered: globalFilteredProjects, filters, openUniverse } = useProjectContext();
   const [impacts, setImpacts] = useState<ProjectImpact[]>([]);
   const [status, setStatus] = useState<ImpactAnalysisStatus | null>(null);
   const [stats, setStats] = useState<{ total: number; bySeverity: Record<string, number>; byType: Record<string, number>; byDirection: Record<string, number> } | null>(null);
   const [filterSeverity, setFilterSeverity] = useState('All');
   const [filterGioService, setFilterGioService] = useState('All');
+  const [filterDdsEntity, setFilterDdsEntity] = useState('All');
   const [filterImpactType, setFilterImpactType] = useState('All');
   const [filterProject, setFilterProject] = useState('');
+  const [expandedEvidenceId, setExpandedEvidenceId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -113,6 +117,16 @@ export default function ImpactView() {
     const globalFilteredIds = new Set(globalFilteredProjects.map(p => p.projectId));
 
     return impacts.filter(imp => {
+      // Scope: this view only lists impacts onto the GIO Service Lines and the
+      // DDS entities. Cross-project impacts ("infrastructure shared",
+      // "platform shared", etc.) are not shown here.
+      const isPseudoTarget =
+        imp.targetProjectId === 'GIO_SERVICES' ||
+        imp.targetProjectId === 'DDS_IMPACTS' ||
+        imp.sourceProjectId === 'GIO_SERVICES' ||
+        imp.sourceProjectId === 'DDS_IMPACTS';
+      if (!isPseudoTarget) return false;
+
       // Respect the global ProjectContext filters (Toolbar filters)
       // An impact is shown ONLY IF at least one of the projects involved (source OR target)
       // is currently visible in the global filter (e.g. DDS = 'GIO')
@@ -126,7 +140,12 @@ export default function ImpactView() {
       if (imp.sourceProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
         isSourceVisible = true;
       }
-      
+      // DDS_IMPACTS pseudo-project is always visible (entity-level impacts apply
+      // regardless of which DDS is selected in the global filter)
+      if (imp.targetProjectId === 'DDS_IMPACTS' || imp.sourceProjectId === 'DDS_IMPACTS') {
+        isTargetVisible = true;
+      }
+
       if (!isSourceVisible && !isTargetVisible) return false;
 
       // Apply local impact-specific filters
@@ -135,6 +154,10 @@ export default function ImpactView() {
       if (filterGioService !== 'All') {
         const svc = filterGioService.replace('GIO_', '');
         if (!imp.gioServices?.includes(svc)) return false;
+      }
+
+      if (filterDdsEntity !== 'All') {
+        if (!imp.ddsEntities?.includes(filterDdsEntity)) return false;
       }
 
       if (filterImpactType !== 'All') {
@@ -153,8 +176,22 @@ export default function ImpactView() {
         if (!match) return false;
       }
       return true;
+    }).sort((a, b) => {
+      // Group order: GIO Services rows first, then DDS Entities rows.
+      const groupOf = (imp: ProjectImpact): number => {
+        const isGio = imp.targetProjectId === 'GIO_SERVICES' || imp.sourceProjectId === 'GIO_SERVICES';
+        if (isGio) return 0;
+        const isDds = imp.targetProjectId === 'DDS_IMPACTS' || imp.sourceProjectId === 'DDS_IMPACTS';
+        if (isDds) return 1;
+        return 2;
+      };
+      const g = groupOf(a) - groupOf(b);
+      if (g !== 0) return g;
+      // Within each group, keep severity-first ordering (high → medium → low).
+      const sevRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
+      return (sevRank[b.severity] ?? 0) - (sevRank[a.severity] ?? 0);
     });
-  }, [impacts, filterSeverity, filterGioService, filterImpactType, filterProject, projects, globalFilteredProjects, filters.dds]);
+  }, [impacts, filterSeverity, filterGioService, filterDdsEntity, filterImpactType, filterProject, projects, globalFilteredProjects, filters.dds]);
 
   const projectMap = useMemo(() => {
     const m = new Map<string, { name: string; dds: string }>();
@@ -165,13 +202,18 @@ export default function ImpactView() {
   const filterOptions = useMemo(() => {
     const types = new Set<string>();
     const gioSvc = new Set<string>();
+    const ddsEnt = new Set<string>();
     for (const i of impacts) {
       for (const t of i.impactTypes ?? [i.impactType]) types.add(t);
       for (const s of i.gioServices ?? []) gioSvc.add(s);
+      for (const d of i.ddsEntities ?? []) ddsEnt.add(d);
     }
+    // Sort DDS entities by catalog order so the dropdown is stable
+    const ddsOrdered = DDS_CATALOG.filter(d => ddsEnt.has(d));
     return {
       impactTypes: Array.from(types).sort(),
       gioServices: Array.from(gioSvc).sort(),
+      ddsEntities: ddsOrdered,
     };
   }, [impacts]);
 
@@ -281,6 +323,16 @@ export default function ImpactView() {
             ))}
           </select>
           <select
+            value={filterDdsEntity}
+            onChange={e => setFilterDdsEntity(e.target.value)}
+            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
+          >
+            <option value="All">All DDS Entities</option>
+            {filterOptions.ddsEntities.map(d => (
+              <option key={`DDS_${d}`} value={d}>{d}</option>
+            ))}
+          </select>
+          <select
             value={filterImpactType}
             onChange={e => setFilterImpactType(e.target.value)}
             className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
@@ -302,76 +354,150 @@ export default function ImpactView() {
         </div>
       )}
 
-      {/* Impact list */}
-      {filtered.length > 0 && (
-        <div className="space-y-3">
-          {filtered.slice(0, 200).map(imp => {
-            const src = projectMap.get(imp.sourceProjectId);
-            const tgt = projectMap.get(imp.targetProjectId);
-            const sevColor = SEVERITY_COLORS[imp.severity] || '#6b7280';
-            const srcName = imp.sourceProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : src?.name || imp.sourceProjectId;
-            const tgtName = imp.targetProjectId === 'GIO_SERVICES' ? 'GIO Services & Infrastructure' : tgt?.name || imp.targetProjectId;
+      {/* Impact list — one card per project, merging GIO and DDS impacts. */}
+      {filtered.length > 0 && (() => {
+        const SEV_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+        const realProjectId = (imp: ProjectImpact): string | null => {
+          if (imp.sourceProjectId !== 'GIO_SERVICES' && imp.sourceProjectId !== 'DDS_IMPACTS') return imp.sourceProjectId;
+          if (imp.targetProjectId !== 'GIO_SERVICES' && imp.targetProjectId !== 'DDS_IMPACTS') return imp.targetProjectId;
+          return null;
+        };
 
-            return (
-              <div key={imp.id}
-                className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3.5 hover:bg-gray-800/40 hover:border-gray-700 transition-colors"
-                style={{ borderLeftColor: sevColor, borderLeftWidth: '3px' }}
-              >
-                {/* Row 1: Direction → Target + badges */}
-                <div className="flex items-start justify-between gap-3 mb-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ background: sevColor }} />
-                    <span className="text-[13px] font-semibold text-gray-100">
-                      {DIRECTION_LABELS[imp.direction] || imp.direction} {imp.bidirectional ? '↔' : '→'} {tgtName}
+        // Group filtered impacts by project. Each group can have at most 2 rows
+        // after aggregation: one for GIO_SERVICES and one for DDS_IMPACTS.
+        const groups = new Map<string, { gio?: ProjectImpact; dds?: ProjectImpact }>();
+        for (const imp of filtered) {
+          const pid = realProjectId(imp);
+          if (!pid) continue;
+          const slot = groups.get(pid) ?? {};
+          const isGio = imp.sourceProjectId === 'GIO_SERVICES' || imp.targetProjectId === 'GIO_SERVICES';
+          if (isGio) slot.gio = imp; else slot.dds = imp;
+          groups.set(pid, slot);
+        }
+
+        const cards = Array.from(groups.entries()).map(([pid, slot]) => {
+          const meta = projectMap.get(pid);
+          const gio = slot.gio;
+          const dds = slot.dds;
+          const sevs = [gio?.severity, dds?.severity].filter(Boolean) as string[];
+          const maxSev = sevs.sort((a, b) => (SEV_RANK[b] ?? 0) - (SEV_RANK[a] ?? 0))[0] || 'low';
+          return { pid, meta, gio, dds, severity: maxSev };
+        }).sort((a, b) => (SEV_RANK[b.severity] ?? 0) - (SEV_RANK[a.severity] ?? 0));
+
+        const limited = cards.slice(0, 200);
+
+        return (
+          <div className="space-y-3">
+            {limited.map(({ pid, meta, gio, dds, severity }) => {
+              const sevColor = SEVERITY_COLORS[severity] || '#6b7280';
+              const ddsColorOfProject = getDDSColor(meta?.dds || '');
+              const projectName = meta?.name || pid;
+              return (
+                <div key={pid}
+                  onClick={() => openUniverse(pid)}
+                  className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3.5 transition-colors cursor-pointer hover:bg-gray-800/60 hover:border-gray-600 hover:shadow-lg"
+                  style={{ borderLeftColor: sevColor, borderLeftWidth: '3px' }}
+                  title="Abrir Project Universe"
+                >
+                  {/* Header row: ID + name (left) ·  severity (right) */}
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ background: sevColor }} />
+                      <span className="text-[10px] font-mono shrink-0 text-gray-400">{pid}</span>
+                      <span className="text-[13px] font-semibold text-gray-100 truncate" title={projectName}>{projectName}</span>
+                    </div>
+                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0"
+                      style={{ background: `${sevColor}22`, color: sevColor }}>
+                      {severity}
                     </span>
-                    {imp.count && imp.count > 1 && (
-                      <span className="text-[10px] text-gray-500" title={`${imp.count} raw rows merged`}>
-                        ·{' '}{imp.count} sub-relations
-                      </span>
+                  </div>
+
+                  {/* Two right-aligned rows of badges: GIO services (top), DDS entities (bottom) */}
+                  <div className="space-y-1.5 mb-2">
+                    {gio?.gioServices && gio.gioServices.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {gio.gioServices.map(svc => (
+                          <span key={`gio-${svc}`} className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-900/30 text-purple-300 border border-purple-800/50">
+                            {svc}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {dds?.ddsEntities && dds.ddsEntities.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {dds.ddsEntities.map(ent => {
+                          const c = getDDSColor(ent);
+                          return (
+                            <span key={`dds-${ent}`} className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border"
+                              style={{ background: `${c}22`, color: c, borderColor: `${c}55` }}>
+                              {ent}
+                            </span>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
-                  <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
-                    <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold"
-                      style={{ background: `${sevColor}22`, color: sevColor }}>
-                      {imp.severity}
-                    </span>
-                    {(imp.impactTypes ?? [imp.impactType]).map(t => (
-                      <span key={t} className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-900/30 text-blue-300 border border-blue-800/50">
-                        {t.replace(/_/g, ' ')}
-                      </span>
-                    ))}
-                    {imp.gioServices && imp.gioServices.map(svc => (
-                      <span key={svc} className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-900/30 text-purple-300 border border-purple-800/50">
-                        {svc}
-                      </span>
-                    ))}
+
+                  {/* Explanations */}
+                  <div className="pl-[18px] space-y-1.5">
+                    {gio?.explanation && (
+                      <div className="text-xs text-gray-300 leading-relaxed">
+                        <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wide mr-1.5">GIO</span>
+                        {gio.explanation}
+                      </div>
+                    )}
+                    {dds?.explanation && (
+                      <div className="text-xs text-gray-300 leading-relaxed">
+                        <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wide mr-1.5">DDS</span>
+                        {dds.explanation}
+                      </div>
+                    )}
                   </div>
-                </div>
 
-                {/* Row 2: Source project name + ID */}
-                <div className="flex items-center gap-2 mb-1.5 pl-[18px]">
-                  {srcName !== imp.sourceProjectId && (
-                    <span className="text-xs text-gray-400">{srcName}</span>
+                  {/* Evidence expand toggle */}
+                  <div className="pl-[18px] mt-2.5 flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedEvidenceId(prev => prev === pid ? null : pid);
+                      }}
+                      className="text-[10px] uppercase tracking-wider text-gray-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                    >
+                      <span>{expandedEvidenceId === pid ? '▾' : '▸'}</span>
+                      <span>Evidence</span>
+                    </button>
+                    <span className="text-[10px] text-gray-600">
+                      · click anywhere else to open Project Universe
+                    </span>
+                  </div>
+
+                  {expandedEvidenceId === pid && (
+                    <div
+                      className="pl-[18px] mt-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <EvidencePanel
+                        projectId={pid}
+                        highlight={gio && dds ? null : (gio ? 'gio' : 'dds')}
+                        compact={false}
+                        deepDiveTargets={[
+                          ...((gio?.gioServices ?? []).map(svc => ({ kind: 'gio' as const, target: svc }))),
+                          ...((dds?.ddsEntities ?? []).map(ent => ({ kind: 'dds' as const, target: ent }))),
+                        ]}
+                      />
+                    </div>
                   )}
-                  <span className="text-[10px] font-mono" style={{ color: getDDSColor(src?.dds || '') }}>
-                    {imp.sourceProjectId === 'GIO_SERVICES' ? '' : imp.sourceProjectId}
-                  </span>
                 </div>
-
-                {/* Row 3: Full explanation */}
-                <div className="text-xs text-gray-300 leading-relaxed pl-[18px]">
-                  {imp.explanation}
-                </div>
+              );
+            })}
+            {cards.length > 200 && (
+              <div className="text-center text-sm text-gray-500 py-4">
+                Mostrando 200 de {cards.length} projetos — use filtros pra reduzir
               </div>
-            );
-          })}
-          {filtered.length > 200 && (
-            <div className="text-center text-sm text-gray-500 py-4">
-              Showing 200 of {filtered.length} — use filters to narrow down
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
 
       {/* Empty state */}
       {impacts.length === 0 && !status?.isRunning && (

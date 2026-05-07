@@ -113,7 +113,7 @@ export interface FilterState {
 }
 
 // View type
-export type ViewType = 'graph' | 'matrix' | 'timeline' | 'detail' | 'impact' | 'goals' | 'drive' | 'archflow';
+export type ViewType = 'graph' | 'matrix' | 'timeline' | 'detail' | 'impact' | 'goals' | 'drive' | 'strom' | 'universe';
 
 // ─── Impact Analysis ──────────────────────────────────────────────────────────
 
@@ -129,6 +129,8 @@ export interface ProjectImpact {
   createdAt: string;
   // GIO specific flags parsed from JSON (JSON array stored in DB)
   gioServices?: string[];
+  // DDS entities affected when target='DDS_IMPACTS' (JSON array stored in DB)
+  ddsEntities?: string[];
   // ─── Aggregation extras ───
   // When the API returns aggregated rows (default), one row represents all raw
   // edges between the same pair of projects (regardless of direction). The
