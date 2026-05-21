@@ -316,7 +316,6 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
     }
   }, [projectId, kind, target, state, response]);
 
-  const kindColor = kind === 'gio' ? '#a855f7' : '#06b6d4';
   const kindLabel = kind === 'gio' ? 'GIO' : 'DDS';
 
   // Visual state of the trigger button. Each state gets distinct colors and

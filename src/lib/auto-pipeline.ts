@@ -8,6 +8,7 @@ import {
 import { runGoalsAnalysis, getGoalsStatus } from './goals-analyzer';
 import { runFullImpactAnalysis } from './impact-engine';
 import { LLMCapExceededError } from './llm';
+import { isSyncAllRunning } from './drive-sync-all';
 
 export type CycleTrigger = 'manual' | 'scheduled';
 export type CycleMode = 'full' | 'goals-only';
@@ -129,6 +130,9 @@ export async function runAutoDiscoveryCycle(
   }
   if (getGoalsStatus().isRunning) {
     throw new Error('Goals analysis is already running — try again later');
+  }
+  if (isSyncAllRunning()) {
+    throw new Error('A manual Sync-all is in progress — skipping cycle');
   }
 
   cycleRunning = true;

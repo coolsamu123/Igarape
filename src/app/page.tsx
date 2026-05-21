@@ -6,7 +6,6 @@ import Header from '@/components/Header';
 import Toolbar from '@/components/Toolbar';
 import Sidebar from '@/components/Sidebar';
 import GraphView from '@/components/GraphView';
-import MatrixView from '@/components/MatrixView';
 import TimelineView from '@/components/TimelineView';
 import DetailView from '@/components/DetailView';
 import ImpactView from '@/components/ImpactView';
@@ -17,11 +16,15 @@ import ProjectUniverseView from '@/components/ProjectUniverseView';
 import LoadingState from '@/components/LoadingState';
 import type { ViewType } from '@/lib/types';
 
-const TOOLBAR_VIEWS: ViewType[] = ['graph', 'matrix', 'timeline', 'detail', 'impact'];
+const TOOLBAR_VIEWS: ViewType[] = ['graph', 'timeline', 'detail', 'impact'];
 const VIEWS_OK_WHEN_EMPTY: ViewType[] = ['drive', 'goals', 'strom', 'universe'];
+// 'universe' is opened by clicking a card in Impact view, so public hosts must
+// be allowed to render it — otherwise the click triggers a forced redirect back
+// to 'detail'.
+const PUBLIC_VIEWS: ViewType[] = ['graph', 'timeline', 'detail', 'impact', 'universe'];
 
 export default function Home() {
-  const { projects, view, setView, refreshProjects, isLoading } = useProjectContext();
+  const { projects, view, setView, refreshProjects, isLoading, isPublic } = useProjectContext();
 
   // Track which views the user has already opened. Once a view is mounted we
   // keep it mounted and just toggle visibility — preserves component state,
@@ -36,9 +39,15 @@ export default function Home() {
     setVisited(prev => (prev.has(view) ? prev : new Set(prev).add(view)));
   }, [view]);
 
+  // Public hosts can't reach Drive Sync / Goals / Strom / Universe. Bounce back
+  // to Details if someone (e.g. a stale link) lands on a restricted view.
+  useEffect(() => {
+    if (isPublic && !PUBLIC_VIEWS.includes(view)) setView('detail');
+  }, [isPublic, view, setView]);
+
   // No projects yet — either the initial fetch is in flight or the DB is empty.
   // Either way, show a soft loading state instead of the deprecated Excel-upload
-  // gating screen. Excel ingestion still lives in Drive Sync → "Upload CIOO Excel".
+  // gating screen. Excel ingestion still lives in Drive Sync → "Upload CDIO Gating Pre-review Excel".
   // Views that don't need project data (Drive Sync, Goals, ArchFlow) render normally.
   if (projects.length === 0 && !VIEWS_OK_WHEN_EMPTY.includes(view)) {
     return (
@@ -46,7 +55,7 @@ export default function Home() {
         <Header />
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
           <LoadingState label={isLoading ? 'Carregando…' : 'Sem dados ainda'} />
-          {!isLoading && (
+          {!isLoading && !isPublic && (
             <button
               onClick={() => setView('drive')}
               className="text-xs text-blue-400 hover:underline -mt-12"
@@ -71,9 +80,6 @@ export default function Home() {
       <div className="flex-1 flex overflow-hidden">
         {visited.has('graph') && (
           <div className={view === 'graph' ? 'contents' : 'hidden'}><GraphView /></div>
-        )}
-        {visited.has('matrix') && (
-          <div className={view === 'matrix' ? 'contents' : 'hidden'}><MatrixView /></div>
         )}
         {visited.has('timeline') && (
           <div className={view === 'timeline' ? 'contents' : 'hidden'}><TimelineView /></div>

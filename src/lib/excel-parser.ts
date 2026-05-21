@@ -67,18 +67,52 @@ export function parseExcelBuffer(buffer: Buffer): {
   format: Format;
 } {
   const workbook = XLSX.read(buffer, { type: 'buffer' });
-  const sheetName = workbook.SheetNames[0];
+  // Prefer the canonical CDIO sheet if it exists in this workbook. Falls back
+  // to the first sheet for older single-sheet exports.
+  const cdioName = workbook.SheetNames.find(n => n.trim().toLowerCase() === 'cdio internal committee');
+  const sheetName = cdioName ?? workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   const format = detectFormat(worksheet);
 
-  const rows: ProjectInsert[] = format === 'cdio'
+  const rawRows: ProjectInsert[] = format === 'cdio'
     ? parseCdioSheet(worksheet)
     : parseCiooLegacySheet(worksheet);
+
+  // The CDIO sheet lists the same project across multiple review cycles, so the
+  // same project_id can appear in several rows. Keep only the one with the most
+  // recent review_date (ties → keep the last occurrence in source order, which
+  // matches the chronological order of the sheet).
+  const rows = dedupeByProjectId(rawRows);
 
   const db = getDb();
   const batchId = uuidv4();
   const errors: string[] = [];
   let count = 0;
+
+  // Snapshot Drive-discovered links per project_id BEFORE wiping. Excel never
+  // owns folder/positions/CIOO links — those come exclusively from Drive
+  // discovery, so we must survive the DELETE.
+  const linkSnapshot = db.prepare(`
+    SELECT project_id,
+           MAX(link_folder)    AS link_folder,
+           MAX(link_positions) AS link_positions,
+           MAX(link_cioo)      AS link_cioo
+    FROM projects
+    GROUP BY project_id
+  `).all() as Array<{
+    project_id: string;
+    link_folder: string | null;
+    link_positions: string | null;
+    link_cioo: string | null;
+  }>;
+  const linksByProjectId = new Map<string, { folder: string; positions: string; cioo: string }>();
+  for (const r of linkSnapshot) {
+    linksByProjectId.set(r.project_id, {
+      folder: r.link_folder || '',
+      positions: r.link_positions || '',
+      cioo: r.link_cioo || '',
+    });
+  }
 
   // Replace previous data
   db.exec('DELETE FROM projects');
@@ -115,42 +149,65 @@ export function parseExcelBuffer(buffer: Buffer): {
 
   insertMany(rows);
 
+  // Restore Drive-discovered links onto rows that match by project_id.
+  const restoreLinks = db.prepare(`
+    UPDATE projects
+    SET link_folder = ?, link_positions = ?, link_cioo = ?
+    WHERE project_id = ?
+  `);
+  const restoreMany = db.transaction(() => {
+    for (const [projectId, links] of linksByProjectId) {
+      if (!links.folder && !links.positions && !links.cioo) continue;
+      restoreLinks.run(links.folder, links.positions, links.cioo, projectId);
+    }
+  });
+  restoreMany();
+
   return { count, batchId, errors, format };
 }
 
 // ─── CDIO (new) format ──────────────────────────────────────────────────────
-// Headers on row 1 (0-indexed). 17 columns A..Q.
-//   A CDIOO Period (Excel serial number)
-//   B Internal review date (DD/MM/YYYY string OR Excel serial)
-//   C [OBSOLETE] Mgt review date (ignored)
-//   D Multi-Cluster (region label → dds)
-//   E Project # in ServiceNow
-//   F Project Name
-//   G CDIO folder (free text "Link" or actual URL)
-//   H Q&A
-//   I NotebookLM
-//   J Short Desc
-//   K Gate
-//   L Project cost (CAPEX)
-//   M Project cost (OPEX)
-//   N Impact on IT costs
-//   O Impact on non-IT costs
-//   P IT Proc Attention points
-//   Q CDIOO Decision
+// Sheet "CDIO internal committee". Headers on row 1 (0-indexed). 28 columns A..AB.
+//   A  CDIOO Period (Excel serial)
+//   B  Internal review date (DD/MM/YYYY string OR Excel serial)
+//   C  [OBSOLETE] Mgt review date (ignored)
+//   D  Multi-Cluster                 → dds
+//   E  Project # in ServiceNow       → project_id
+//   F  Project Name                  → name
+//   G  CDIO folder                   → link_folder
+//   H  Q&A                           → qa
+//   I  NotebookLM                    → remarks (appended)
+//   J  Short Desc                    → description
+//   K  Gate                          → gate
+//   L  Project cost (CAPEX)          → cost_keur (combined)
+//   M  Project cost (OPEX)           → cost_keur (combined)
+//   N  Impact on IT costs            → remarks (appended)
+//   O  Impact on non-IT costs        → remarks (appended)
+//   P  Status CDIO internal committee  (read, unused)
+//   Q  Status TADA/OTAV                (read, unused)
+//   R  Status CDIOO Management Decision (read, unused)
+//   S  Action plan / questions         (read, unused)
+//   T  Governance reriew [sic]         (read, unused)
+//   U  IT Proc Leader                  (read, unused)
+//   V  IT Proc Feedback                (read, unused)
+//   W  IT Proc Attention points      → remarks (appended)
+//   X  CDIOO Decision                → decision
+//   Y  Link to CDIOO Positions       → link_positions
+//   Z  OCDIO position cistribution date [sic]  (read, unused)
+//   AA Gating process status           (read, unused)
+//   AB lead time (days)                (read, unused)
 
 function parseCdioSheet(worksheet: XLSX.WorkSheet): ProjectInsert[] {
   const rawData: RawRow[] = XLSX.utils.sheet_to_json(worksheet, {
     header: 'A',
-    range: 1, // skip header row 0
+    range: 2, // row 0 = group header (PROJECT INFORMATION, …), row 1 = real headers, data starts at row 2
     defval: '',
     blankrows: false,
   });
 
-  // The "CDIO folder" column (G) shows visible text "Link" but the source xlsx
-  // we've seen does NOT embed an actual hyperlink (no <hyperlinks> in sheet1.xml).
-  // Drive URLs must come from another path — the Drive Sync "Discover" flow.
-  const folderHyperlinks = extractColumnHyperlinks(worksheet, 'G', 2);
-
+  // Note: columns G ("CDIO folder") and Y ("Link to CDIOO Positions") are
+  // intentionally ignored. Folder links are the sole responsibility of Drive
+  // discovery (see drive-engine.discoverAndAddProjectFromDrive).
   const entries: ProjectInsert[] = [];
 
   for (let i = 0; i < rawData.length; i++) {
@@ -192,8 +249,9 @@ function parseCdioSheet(worksheet: XLSX.WorkSheet): ProjectInsert[] {
 
     // Compose remarks from secondary cost/impact/attention fields, preserving the original
     // strings so the LLM still sees them when they're not parseable as numbers.
+    // IT Proc Attention lives in column W (28-column layout), not P.
     const remarksParts: string[] = [];
-    const itProc = str(row['P']);
+    const itProc = str(row['W']);
     if (itProc) remarksParts.push(`IT Proc Attention: ${itProc}`);
     const capexRaw = str(row['L']);
     const opexRaw = str(row['M']);
@@ -208,13 +266,6 @@ function parseCdioSheet(worksheet: XLSX.WorkSheet): ProjectInsert[] {
       remarksParts.push(`NotebookLM: ${notebook}`);
     }
 
-    // CDIO folder column (G): prefer the embedded hyperlink target; fall back to the
-    // visible text only if it actually looks like a URL (and not the literal "Link").
-    const folderHyperlink = folderHyperlinks[i] || '';
-    const linkFolderRaw = str(row['G']);
-    const linkFolder = folderHyperlink
-      || (linkFolderRaw && linkFolderRaw.toLowerCase() !== 'link' ? linkFolderRaw : '');
-
     entries.push({
       projectId,
       name: name || 'Unnamed Project',
@@ -225,7 +276,7 @@ function parseCdioSheet(worksheet: XLSX.WorkSheet): ProjectInsert[] {
       remarks: remarksParts.join('\n'),
       qa: str(row['H']),
       reviewDate,
-      decision: str(row['Q']),
+      decision: str(row['X']),
       decisionMode: '',
       decisionDate: '',
       reviewStatus: '',
@@ -237,7 +288,7 @@ function parseCdioSheet(worksheet: XLSX.WorkSheet): ProjectInsert[] {
       sessionEnd: '',
       participants: '',
       linkPositions: '',
-      linkFolder,
+      linkFolder: '',
       linkCIOO: '',
       year,
       month,
@@ -293,9 +344,9 @@ function parseCiooLegacySheet(worksheet: XLSX.WorkSheet): ProjectInsert[] {
       sessionStart: str(row['Q']),
       sessionEnd: str(row['R']),
       participants: str(row['T']),
-      linkPositions: str(row['U']),
-      linkFolder: str(row['V']),
-      linkCIOO: str(row['W']),
+      linkPositions: '',
+      linkFolder: '',
+      linkCIOO: '',
       year: typeof yearRaw === 'number' ? yearRaw : (parseInt(str(yearRaw)) || null),
       month: typeof monthRaw === 'number' ? monthRaw : (parseInt(str(monthRaw)) || null),
       batchId: '',
@@ -307,24 +358,27 @@ function parseCiooLegacySheet(worksheet: XLSX.WorkSheet): ProjectInsert[] {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-// Pull cell.l.Target values (embedded hyperlinks) for a given column starting at
-// the given 1-indexed row, in the same order rows appear in sheet_to_json output.
-function extractColumnHyperlinks(
-  worksheet: XLSX.WorkSheet,
-  column: string,
-  startRow: number,
-): string[] {
-  const ref = worksheet['!ref'];
-  if (!ref) return [];
-  const range = XLSX.utils.decode_range(ref);
-  const out: string[] = [];
-  for (let r = startRow - 1; r <= range.e.r; r++) {
-    const cellRef = column + (r + 1);
-    const cell = worksheet[cellRef] as XLSX.CellObject | undefined;
-    const target = cell?.l?.Target ?? '';
-    out.push(typeof target === 'string' ? target : '');
+// Dedupe by project_id, keeping the row with the latest review_date. Ties (or
+// missing dates) → keep the last occurrence in source order. Rows with an empty
+// project_id are passed through unchanged (they're already pseudo-unique via
+// the legacy parser's "UNKNOWN-<index>" fallback).
+function dedupeByProjectId(rows: ProjectInsert[]): ProjectInsert[] {
+  const byId = new Map<string, ProjectInsert>();
+  const passthrough: ProjectInsert[] = [];
+  for (const row of rows) {
+    if (!row.projectId) { passthrough.push(row); continue; }
+    const existing = byId.get(row.projectId);
+    if (!existing) {
+      byId.set(row.projectId, row);
+      continue;
+    }
+    // ISO date strings compare lexicographically. Empty string sorts before any
+    // populated date, so a populated date always wins over a missing one.
+    const a = existing.reviewDate || '';
+    const b = row.reviewDate || '';
+    if (b >= a) byId.set(row.projectId, row);
   }
-  return out;
+  return [...byId.values(), ...passthrough];
 }
 
 function str(val: string | number | null | undefined): string {

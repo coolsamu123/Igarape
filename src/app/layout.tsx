@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import { ProjectProvider } from "@/context/ProjectContext";
+import { isPublicHost } from '@/lib/public-host';
 
 export const metadata: Metadata = {
   title: "Strom — Portfolio Intelligence",
@@ -16,10 +18,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const isPublic = isPublicHost(headers().get('host'));
   return (
     <html lang="en">
       <body className="antialiased">
-        <ProjectProvider>
+        <ProjectProvider isPublic={isPublic}>
           {children}
         </ProjectProvider>
       </body>

@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useProjectContext } from '@/context/ProjectContext';
 import { getDDSColor } from '@/lib/constants';
-import { DDS_CATALOG } from '@/lib/dds-catalog';
 import LoadingState from './LoadingState';
 import EvidencePanel from './EvidencePanel';
 import type { ProjectImpact, ImpactAnalysisStatus } from '@/lib/types';
@@ -14,26 +13,14 @@ const SEVERITY_COLORS: Record<string, string> = {
   low: '#6b7280',
 };
 
-const DIRECTION_LABELS: Record<string, string> = {
-  blocks: 'Blocks',
-  enables: 'Enables',
-  shares_resource: 'Shares resource',
-  feeds_data: 'Feeds data',
-  competes_with: 'Competes with',
-  requires_coordination: 'Requires coordination',
-};
-
-
 export default function ImpactView() {
-  const { projects, filtered: globalFilteredProjects, filters, openUniverse } = useProjectContext();
+  const { projects, filtered: globalFilteredProjects, filters, openUniverse, isPublic } = useProjectContext();
   const [impacts, setImpacts] = useState<ProjectImpact[]>([]);
   const [status, setStatus] = useState<ImpactAnalysisStatus | null>(null);
   const [stats, setStats] = useState<{ total: number; bySeverity: Record<string, number>; byType: Record<string, number>; byDirection: Record<string, number> } | null>(null);
-  const [filterSeverity, setFilterSeverity] = useState('All');
-  const [filterGioService, setFilterGioService] = useState('All');
-  const [filterDdsEntity, setFilterDdsEntity] = useState('All');
-  const [filterImpactType, setFilterImpactType] = useState('All');
-  const [filterProject, setFilterProject] = useState('');
+  // Filters live entirely in the global Toolbar (ProjectContext.filters). No
+  // local filter state — the second filter row was removed and Severity moved
+  // up to the toolbar, conditional on view==='impact'.
   const [expandedEvidenceId, setExpandedEvidenceId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
@@ -127,54 +114,17 @@ export default function ImpactView() {
         imp.sourceProjectId === 'DDS_IMPACTS';
       if (!isPseudoTarget) return false;
 
-      // Respect the global ProjectContext filters (Toolbar filters)
-      // An impact is shown ONLY IF at least one of the projects involved (source OR target)
-      // is currently visible in the global filter (e.g. DDS = 'GIO')
-      let isSourceVisible = globalFilteredIds.has(imp.sourceProjectId);
-      let isTargetVisible = globalFilteredIds.has(imp.targetProjectId);
-      
-      // Special case for GIO Services pseudo-project
-      if (imp.targetProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
-        isTargetVisible = true;
-      }
-      if (imp.sourceProjectId === 'GIO_SERVICES' && (filters.dds === 'All' || filters.dds === 'GIO')) {
-        isSourceVisible = true;
-      }
-      // DDS_IMPACTS pseudo-project is always visible (entity-level impacts apply
-      // regardless of which DDS is selected in the global filter)
-      if (imp.targetProjectId === 'DDS_IMPACTS' || imp.sourceProjectId === 'DDS_IMPACTS') {
-        isTargetVisible = true;
-      }
+      // Every impact here is "real project ↔ pseudo-target". Find the real
+      // side and require it to be in the global filtered set, so DDS/Gate/
+      // Decision/Year/Search from the toolbar actually constrain WHICH
+      // projects' impacts are shown — not just which targets exist.
+      const sourceIsPseudo = imp.sourceProjectId === 'GIO_SERVICES' || imp.sourceProjectId === 'DDS_IMPACTS';
+      const realProjectId = sourceIsPseudo ? imp.targetProjectId : imp.sourceProjectId;
+      if (!globalFilteredIds.has(realProjectId)) return false;
 
-      if (!isSourceVisible && !isTargetVisible) return false;
+      // Severity is now part of the global toolbar.
+      if (filters.severity !== 'All' && imp.severity !== filters.severity) return false;
 
-      // Apply local impact-specific filters
-      if (filterSeverity !== 'All' && imp.severity !== filterSeverity) return false;
-
-      if (filterGioService !== 'All') {
-        const svc = filterGioService.replace('GIO_', '');
-        if (!imp.gioServices?.includes(svc)) return false;
-      }
-
-      if (filterDdsEntity !== 'All') {
-        if (!imp.ddsEntities?.includes(filterDdsEntity)) return false;
-      }
-
-      if (filterImpactType !== 'All') {
-        const types = imp.impactTypes ?? [imp.impactType];
-        if (!types.includes(filterImpactType)) return false;
-      }
-
-      if (filterProject) {
-        const s = filterProject.toLowerCase();
-        const srcName = projects.find(p => p.projectId === imp.sourceProjectId)?.name || '';
-        const tgtName = projects.find(p => p.projectId === imp.targetProjectId)?.name || '';
-        const match = imp.sourceProjectId.toLowerCase().includes(s) ||
-          imp.targetProjectId.toLowerCase().includes(s) ||
-          srcName.toLowerCase().includes(s) ||
-          tgtName.toLowerCase().includes(s);
-        if (!match) return false;
-      }
       return true;
     }).sort((a, b) => {
       // Group order: GIO Services rows first, then DDS Entities rows.
@@ -191,31 +141,13 @@ export default function ImpactView() {
       const sevRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
       return (sevRank[b.severity] ?? 0) - (sevRank[a.severity] ?? 0);
     });
-  }, [impacts, filterSeverity, filterGioService, filterDdsEntity, filterImpactType, filterProject, projects, globalFilteredProjects, filters.dds]);
+  }, [impacts, globalFilteredProjects, filters.severity]);
 
   const projectMap = useMemo(() => {
     const m = new Map<string, { name: string; dds: string }>();
     projects.forEach(p => m.set(p.projectId, { name: p.name, dds: p.dds }));
     return m;
   }, [projects]);
-
-  const filterOptions = useMemo(() => {
-    const types = new Set<string>();
-    const gioSvc = new Set<string>();
-    const ddsEnt = new Set<string>();
-    for (const i of impacts) {
-      for (const t of i.impactTypes ?? [i.impactType]) types.add(t);
-      for (const s of i.gioServices ?? []) gioSvc.add(s);
-      for (const d of i.ddsEntities ?? []) ddsEnt.add(d);
-    }
-    // Sort DDS entities by catalog order so the dropdown is stable
-    const ddsOrdered = DDS_CATALOG.filter(d => ddsEnt.has(d));
-    return {
-      impactTypes: Array.from(types).sort(),
-      gioServices: Array.from(gioSvc).sort(),
-      ddsEntities: ddsOrdered,
-    };
-  }, [impacts]);
 
   if (loading) {
     return <LoadingState />;
@@ -233,23 +165,26 @@ export default function ImpactView() {
               Gemini analyzes ALL projects to identify impact relationships — technology dependencies, shared platforms, timeline blocking, etc.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <button
-              onClick={eraseImpacts}
-              disabled={status?.isRunning || isClearing || (stats?.total ?? impacts.length) === 0}
-              className="px-4 py-2.5 rounded-lg bg-red-900/60 text-red-200 text-sm font-semibold hover:bg-red-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed border border-red-800/60"
-              title="Delete all stored impacts from the database"
-            >
-              {isClearing ? 'Erasing...' : 'Erase All'}
-            </button>
-            <button
-              onClick={startAnalysis}
-              disabled={status?.isRunning || isStarting}
-              className="px-5 py-2.5 rounded-lg bg-blue-700 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {status?.isRunning ? 'Running...' : isStarting ? 'Starting...' : impacts.length > 0 ? 'Re-run Analysis' : 'Start Full Analysis'}
-            </button>
-          </div>
+          {/* Admin-only controls — hidden in public (Cloudflare-tunnel) mode. */}
+          {!isPublic && (
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={eraseImpacts}
+                disabled={status?.isRunning || isClearing || (stats?.total ?? impacts.length) === 0}
+                className="px-4 py-2.5 rounded-lg bg-red-900/60 text-red-200 text-sm font-semibold hover:bg-red-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed border border-red-800/60"
+                title="Delete all stored impacts from the database"
+              >
+                {isClearing ? 'Erasing...' : 'Erase All'}
+              </button>
+              <button
+                onClick={startAnalysis}
+                disabled={status?.isRunning || isStarting}
+                className="px-5 py-2.5 rounded-lg bg-blue-700 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {status?.isRunning ? 'Running...' : isStarting ? 'Starting...' : impacts.length > 0 ? 'Re-run Analysis' : 'Start Full Analysis'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Progress */}
@@ -298,58 +233,9 @@ export default function ImpactView() {
         )}
       </div>
 
-      {/* Filters */}
+      {/* Single counter — filters live entirely in the top Toolbar. */}
       {impacts.length > 0 && (
-        <div className="flex items-center gap-3 mb-4 flex-wrap">
-          <span className="text-xs text-gray-500">Filter:</span>
-          <select
-            value={filterSeverity}
-            onChange={e => setFilterSeverity(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
-          >
-            <option value="All">All Severity</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
-          <select
-            value={filterGioService}
-            onChange={e => setFilterGioService(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
-          >
-            <option value="All">All GIO Services</option>
-            {filterOptions.gioServices.map(s => (
-              <option key={`GIO_${s}`} value={`GIO_${s}`}>{s}</option>
-            ))}
-          </select>
-          <select
-            value={filterDdsEntity}
-            onChange={e => setFilterDdsEntity(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
-          >
-            <option value="All">All DDS Entities</option>
-            {filterOptions.ddsEntities.map(d => (
-              <option key={`DDS_${d}`} value={d}>{d}</option>
-            ))}
-          </select>
-          <select
-            value={filterImpactType}
-            onChange={e => setFilterImpactType(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500 max-w-[200px]"
-          >
-            <option value="All">All Impact Types</option>
-            {filterOptions.impactTypes.map(t => (
-              <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-            ))}
-          </select>
-          <input
-            type="text"
-            placeholder="Search project..."
-            value={filterProject}
-            onChange={e => setFilterProject(e.target.value)}
-            className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-3 py-1 text-[13px] focus:outline-none focus:border-blue-500 w-48"
-          />
-          <div className="flex-1" />
+        <div className="flex items-center justify-end mb-4">
           <span className="text-xs text-gray-500">{filtered.length} relationships shown</span>
         </div>
       )}
@@ -390,7 +276,6 @@ export default function ImpactView() {
           <div className="space-y-3">
             {limited.map(({ pid, meta, gio, dds, severity }) => {
               const sevColor = SEVERITY_COLORS[severity] || '#6b7280';
-              const ddsColorOfProject = getDDSColor(meta?.dds || '');
               const projectName = meta?.name || pid;
               return (
                 <div key={pid}

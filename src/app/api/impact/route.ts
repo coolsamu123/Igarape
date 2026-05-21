@@ -6,6 +6,20 @@ import {
   aggregateImpacts,
   clearAllImpacts,
 } from '@/lib/impact-engine';
+import { isPublicHost } from '@/lib/public-host';
+
+// Destructive / expensive actions (start a Gemini run, wipe stored impacts)
+// must not be triggerable from the public Cloudflare-tunnel host even if
+// somebody crafts the POST manually. Read-only "status" stays open.
+function rejectFromPublic(request: NextRequest): NextResponse | null {
+  if (isPublicHost(request.headers.get('host'))) {
+    return NextResponse.json(
+      { error: 'This action is not available on the public endpoint.' },
+      { status: 403 },
+    );
+  }
+  return null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -59,6 +73,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'clear') {
+      const blocked = rejectFromPublic(request);
+      if (blocked) return blocked;
       const status = getImpactStatus();
       if (status.isRunning) {
         return NextResponse.json(
@@ -75,6 +91,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'start') {
+      const blocked = rejectFromPublic(request);
+      if (blocked) return blocked;
       const status = getImpactStatus();
       if (status.isRunning) {
         return NextResponse.json(

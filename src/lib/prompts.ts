@@ -8,20 +8,65 @@ You are analyzing project documentation to extract structured information for go
 
 {{PROJECT_INFO}}
 
-Extract the following 8 fields from the project documents below. For each field, provide a concise but complete summary. If the information is not found in the documents, respond with "Not identified in available documentation".
+Extract the fields below from the project documents. For free-form text fields, write a concise but complete summary. For array fields, only emit items that match the listed canonical values (drop anything that does not match — do not invent variations). If a field's information is not in the documents, respond with "Not identified in available documentation" for text fields, or an empty array [] for array fields.
 
-Fields to extract:
-1. **digital_technologies**: Digital technologies involved (infrastructure, network, platforms, tools, cloud services, databases, middleware, etc.)
-2. **change_management**: User change management approach (training plans, adoption strategy, communication plan, organizational impact, number of users affected, rollout phases)
-3. **security_impacts**: Security impacts including DRMT (Digital Risk Management Toolkit) grade if mentioned, cybersecurity risks, data protection considerations, compliance requirements
-4. **regional_impacts**: Regional impacts — which geographies/regions are affected, deployment scope, local vs global rollout
-5. **ia_embedded**: Whether AI/IA (Artificial Intelligence) is embedded in the project — any ML models, AI features, generative AI, automation, intelligent processing
-6. **gio_sl_dds_impacts**: Direct impacts with GIO Service Lines and/or DDS (Digital & Data Solutions) — which service lines are involved, dependencies, touchpoints
-7. **dds_gio_workload**: Expected DDS / GIO SL workload — effort estimation, FTE required, resource allocation, support needs
-8. **business_apps_cis**: Impacts with Business Applications and Configuration Items (CIs) — which applications/systems are affected, integrations, decommissions, new CIs
+FREE-FORM TEXT FIELDS:
+1. **summary_one_line**: One-line executive elevator pitch of the project (100-180 characters). Plain prose, no markdown, no bullets. State WHAT the project does and WHO it affects.
+2. **digital_technologies**: Digital technologies involved (infrastructure, network, platforms, tools, cloud services, databases, middleware, etc.)
+3. **change_management**: User change management approach (training plans, adoption strategy, communication plan, organizational impact, number of users affected, rollout phases)
+4. **security_impacts**: Security impacts including DRMT (Digital Risk Management Toolkit) grade if mentioned, cybersecurity risks, data protection considerations, compliance requirements
+5. **regional_impacts**: Regional impacts — which geographies/regions are affected, deployment scope, local vs global rollout
+6. **ia_embedded**: Whether AI/IA (Artificial Intelligence) is embedded in the project — any ML models, AI features, generative AI, automation, intelligent processing
+7. **gio_sl_dds_impacts**: Direct impacts with GIO Service Lines and/or DDS (Digital & Data Solutions) — which service lines are involved, dependencies, touchpoints
+8. **dds_gio_workload**: Expected DDS / GIO SL workload — effort estimation, FTE required, resource allocation, support needs
+9. **business_apps_cis**: Impacts with Business Applications and Configuration Items (CIs) — which applications/systems are affected, integrations, decommissions, new CIs
+
+CANONICAL ARRAY FIELDS (emit ONLY exact strings from the catalog, lowercase where shown):
+
+10. **dds_entities_touched**: DDS entities affected by this project. Canonical values:
+    Geographic zones: "Americas", "Europe", "APAC", "AMEI"
+    Business divisions / SBUs: "CF", "GM&T", "E&C", "HC D&IT", "Alizent", "GDO", "SEPPIC", "Airgas", "HHC"
+    App / functional groups: "Industrial Apps", "Enterprise Apps", "Data & AI Apps", "Digital Factory", "InnoTech", "CDIO Office", "IDD"
+
+11. **gio_services_touched**: GIO service lines the project depends on. Canonical values (use these EXACT strings):
+    "Security & Compliance", "Command Center", "User Workplace", "Site Infrastructure", "Cloud Services"
+
+12. **tech_tags**: Technology stack identifiers. Use ONLY entries from this canonical catalog (lowercase, hyphenated):
+    Cloud: aws, azure, gcp, oracle-cloud, alibaba-cloud, ovh
+    ERP/Suites: sap-s4, sap-ecc, sap-bw, sap-hana, oracle-ebs, workday, servicenow, salesforce
+    Data: snowflake, databricks, bigquery, redshift, synapse, palantir
+    DB: oracle-db, postgres, mysql, mssql, mongodb, cassandra, elasticsearch
+    Streaming: kafka, rabbitmq, sqs, eventhub
+    BI: powerbi, tableau, qlik, looker, sap-analytics-cloud
+    Identity: okta, azure-ad, ping-identity, sso, carm
+    Collab: m365, teams, slack, sharepoint, onedrive
+    Dev: github, gitlab, bitbucket, jenkins, jira, confluence, azure-devops
+    Containers: kubernetes, docker, openshift, ecs, aks, gke
+    AI/ML: openai, anthropic, gemini, vertex-ai, sagemaker, azure-openai, langchain, huggingface, genai
+    RPA: uipath, blueprism, automation-anywhere, power-automate
+    CRM: sap-c4c, sap-customer-experience, dynamics-365
+    Integration: mulesoft, boomi, sap-pi-po, sap-cpi, apim
+    Network/Sec: cisco, fortinet, palo-alto, zscaler, crowdstrike, sentinelone
+    Observability: datadog, splunk, dynatrace, new-relic, grafana, elk
+    Frontend: react, angular, vue, nextjs
+    Industrial: iot, edge-computing, azure-iot, osisoft-pi, aveva, siemens-tia, rockwell
+
+13. **vendors**: External vendors / suppliers / SI partners involved. Use ONLY entries from this catalog:
+    microsoft, aws, google, sap, oracle, ibm, salesforce, servicenow, snowflake, databricks, workday, mongodb, elastic,
+    accenture, capgemini, deloitte, tcs, infosys, wipro, atos, sopra-steria, pwc, kpmg, cgi, hcl,
+    palantir, mulesoft, okta, crowdstrike, cisco, fortinet, aveva, osisoft, siemens, rockwell, schneider-electric
+
+14. **data_classifications**: Sensitive data / regulatory scopes the project touches. Use ONLY entries from this catalog:
+    pii, customer-pii, employee-pii, hr-sensitive,
+    phi, pci-dss,
+    financial-data, erp-finance,
+    gdpr-scope, sox-scope, nis2-scope, iso-27001-scope,
+    trade-secrets, ip, contracts, pricing, m-and-a,
+    operational-ot-data, safety-critical
 
 Respond ONLY with a JSON object (no markdown fences, no explanation) with these exact keys:
 {
+  "summary_one_line": "...",
   "digital_technologies": "...",
   "change_management": "...",
   "security_impacts": "...",
@@ -29,7 +74,12 @@ Respond ONLY with a JSON object (no markdown fences, no explanation) with these 
   "ia_embedded": "...",
   "gio_sl_dds_impacts": "...",
   "dds_gio_workload": "...",
-  "business_apps_cis": "..."
+  "business_apps_cis": "...",
+  "dds_entities_touched": [],
+  "gio_services_touched": [],
+  "tech_tags": [],
+  "vendors": [],
+  "data_classifications": []
 }
 
 DOCUMENT TEXT:

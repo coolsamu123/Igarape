@@ -127,8 +127,11 @@ export async function POST(request: NextRequest) {
       const result = await discoverAndAddProjectFromDrive(body.url);
 
       return NextResponse.json({
-        message: `Discovered and added ${result.added.length} project(s)`,
-        added: result.added,
+        message: `Processed ${result.created.length + result.linked.length} project(s)`,
+        created: result.created,
+        linked: result.linked,
+        unmatched: result.unmatched,
+        scannedFolders: result.scannedFolders,
       });
     }
 

@@ -10,6 +10,7 @@ import {
 } from '@/lib/auto-pipeline';
 import { getEffectiveSchedules } from '@/lib/scheduler';
 import { getTodayLLMStats } from '@/lib/llm';
+import { getSyncAllState, isSyncAllRunning } from '@/lib/drive-sync-all';
 
 export interface DrivePanelState {
   pipeline: {
@@ -19,6 +20,8 @@ export interface DrivePanelState {
     drive: ReturnType<typeof getDriveStatus>;
     goals: ReturnType<typeof getGoalsStatus>;
     impact: ReturnType<typeof getImpactStatus>;
+    elapsedSec: number;       // seconds since this run's startedAt
+    etaSec: number | null;    // null when no estimate is possible yet
   };
   counts: {
     totalProjects: number;
@@ -30,6 +33,7 @@ export interface DrivePanelState {
   schedule: ReturnType<typeof getEffectiveSchedules>;
   watchRoots: ReturnType<typeof listWatchRoots>;
   lastRun: ReturnType<typeof getLastAutoRun>;
+  syncAll: ReturnType<typeof getSyncAllState>;
   recentRuns: Array<{
     id: number;
     startedAt: string;
@@ -79,7 +83,9 @@ export function buildDrivePanelState(): DrivePanelState {
   const drive = getDriveStatus();
   const goals = getGoalsStatus();
   const impact = getImpactStatus();
-  const isRunning = isAutoCycleRunning() || drive.isRunning || goals.isRunning || impact.isRunning;
+  const syncAll = getSyncAllState();
+  const isRunning =
+    isAutoCycleRunning() || drive.isRunning || goals.isRunning || impact.isRunning || isSyncAllRunning();
 
   const recentRunsRaw = db.prepare(`
     SELECT id, started_at, finished_at, trigger, status, new_projects, goals_added, impacts_added, errors_json
@@ -91,6 +97,23 @@ export function buildDrivePanelState(): DrivePanelState {
     status: string; new_projects: number; goals_added: number; impacts_added: number; errors_json: string;
   }>;
 
+  // Elapsed + ETA derived from drive status. ETA is meaningful only during the
+  // Download stage; for Goals/Impact we'd need per-stage timing which we don't
+  // track yet. nullable so the UI can decide whether to show.
+  let elapsedSec = 0;
+  let etaSec: number | null = null;
+  if (drive.startedAt) {
+    elapsedSec = Math.max(0, (Date.now() - new Date(drive.startedAt).getTime()) / 1000);
+    if (drive.isRunning) {
+      const done = drive.downloadedFiles + drive.skippedFiles;
+      const remaining = Math.max(0, drive.totalFiles - done);
+      if (done > 0 && elapsedSec > 1) {
+        const rate = done / elapsedSec; // files per second
+        if (rate > 0) etaSec = Math.round(remaining / rate);
+      }
+    }
+  }
+
   return {
     pipeline: {
       isRunning,
@@ -99,12 +122,15 @@ export function buildDrivePanelState(): DrivePanelState {
       drive,
       goals,
       impact,
+      elapsedSec: Math.round(elapsedSec),
+      etaSec,
     },
     counts: { totalProjects, withFiles, withGoals, withImpacts },
     todayLLM: getTodayLLMStats(),
     schedule: getEffectiveSchedules(),
     watchRoots: listWatchRoots(),
     lastRun: getLastAutoRun(),
+    syncAll,
     recentRuns: recentRunsRaw.map(r => ({
       id: r.id,
       startedAt: r.started_at,

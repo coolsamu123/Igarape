@@ -49,6 +49,7 @@ interface ProjectRow {
 }
 
 interface GoalsRow {
+  summary_one_line: string;
   digital_technologies: string;
   change_management: string;
   security_impacts: string;
@@ -57,6 +58,12 @@ interface GoalsRow {
   gio_sl_dds_impacts: string;
   dds_gio_workload: string;
   business_apps_cis: string;
+  dds_entities_touched: string;     // JSON
+  gio_services_touched: string;     // JSON
+  tech_tags: string;                // JSON
+  vendors: string;                  // JSON
+  data_classifications: string;     // JSON
+  mentioned_projects: string;       // JSON
   region: string;
   source_files: string;
   analyzed_at: string;
@@ -148,8 +155,22 @@ function buildPrompt(args: {
   }
   const docsBlock = docExcerpts.join('\n') || '(no documents available in cache for this project)';
 
+  const parseArr = (raw: string | undefined): string[] => {
+    if (!raw) return [];
+    try { const v = JSON.parse(raw); return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []; }
+    catch { return []; }
+  };
+  const fmtArr = (arr: string[]): string => (arr.length ? arr.join(', ') : 'Not identified');
+
   const goalsBlock = goals
     ? [
+        `- Summary: ${goals.summary_one_line || 'Not identified'}`,
+        `- Tech tags (canonical): ${fmtArr(parseArr(goals.tech_tags))}`,
+        `- Vendors (canonical): ${fmtArr(parseArr(goals.vendors))}`,
+        `- Data classifications: ${fmtArr(parseArr(goals.data_classifications))}`,
+        `- DDS entities touched: ${fmtArr(parseArr(goals.dds_entities_touched))}`,
+        `- GIO services touched: ${fmtArr(parseArr(goals.gio_services_touched))}`,
+        `- Mentions other projects: ${fmtArr(parseArr(goals.mentioned_projects))}`,
         `- Digital Technologies: ${goals.digital_technologies || 'Not identified'}`,
         `- Regional Impacts: ${goals.regional_impacts || 'Not identified'}`,
         `- GIO/SL/DDS Impacts: ${goals.gio_sl_dds_impacts || 'Not identified'}`,
@@ -228,8 +249,11 @@ export async function getOrGenerateDeepDive(args: {
   }
 
   const goals = db.prepare(`
-    SELECT digital_technologies, change_management, security_impacts, regional_impacts,
+    SELECT summary_one_line,
+           digital_technologies, change_management, security_impacts, regional_impacts,
            ia_embedded, gio_sl_dds_impacts, dds_gio_workload, business_apps_cis,
+           dds_entities_touched, gio_services_touched,
+           tech_tags, vendors, data_classifications, mentioned_projects,
            region, source_files, analyzed_at
     FROM project_goals
     WHERE project_id = ?

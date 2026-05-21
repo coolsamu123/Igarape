@@ -110,6 +110,8 @@ export interface FilterState {
   yearFrom: number | null;
   yearTo: number | null;
   search: string;
+  // Impact-only: 'All' | 'high' | 'medium' | 'low'. Other views ignore it.
+  severity: string;
 }
 
 // View type

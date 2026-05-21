@@ -48,11 +48,16 @@ interface ProjectContextType {
 
   // Analysis cache
   analysisResults: Map<string, AnalysisResult>;
+
+  // True when the request came from a host classified as "public" (e.g. the
+  // Cloudflare tunnel). Public mode hides admin-only views (Goals, Drive Sync,
+  // Strom, Universe). Determined server-side from the Host header.
+  isPublic: boolean;
 }
 
 const ProjectContext = createContext<ProjectContextType | null>(null);
 
-export function ProjectProvider({ children }: { children: ReactNode }) {
+export function ProjectProvider({ children, isPublic = false }: { children: ReactNode; isPublic?: boolean }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [stats, setStats] = useState<Record<string, unknown> | null>(null);
   const [impacts, setImpacts] = useState<ProjectImpact[]>([]);
@@ -72,6 +77,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     yearFrom: null,
     yearTo: null,
     search: '',
+    severity: 'All',
   });
   const [analysisResults, setAnalysisResults] = useState<Map<string, AnalysisResult>>(new Map());
   const [goalsProjectIds, setGoalsProjectIds] = useState<Set<string>>(new Set());
@@ -257,6 +263,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       threshold, setThreshold, filters, setFilters,
       filtered, filteredWithSignal, uploadFile, refreshProjects,
       analyzeProjects, analyzeWithDocs, analysisResults,
+      isPublic,
     }}>
       {children}
     </ProjectContext.Provider>

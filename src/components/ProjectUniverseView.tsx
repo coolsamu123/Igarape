@@ -79,12 +79,6 @@ const SEVERITY_COLOR: Record<string, string> = {
   low: '#6b7280',
 };
 
-const SEVERITY_GLOW: Record<string, string> = {
-  high: 'rgba(239, 68, 68, 0.5)',
-  medium: 'rgba(245, 158, 11, 0.4)',
-  low: 'rgba(107, 114, 128, 0.3)',
-};
-
 const GIO_COLOR = '#a855f7';     // purple — GIO services
 const GIO_GLOW = 'rgba(168, 85, 247, 0.4)';
 

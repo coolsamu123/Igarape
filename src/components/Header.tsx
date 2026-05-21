@@ -5,7 +5,6 @@ import type { ViewType } from '@/lib/types';
 
 const NAV_ITEMS: { key: ViewType; label: string }[] = [
   { key: 'graph', label: '⬡ Graph' },
-  { key: 'matrix', label: '▦ Matrix' },
   { key: 'timeline', label: '⟶ Timeline' },
   { key: 'detail', label: '≡ Details' },
   { key: 'impact', label: '→ Impact' },
@@ -14,8 +13,13 @@ const NAV_ITEMS: { key: ViewType; label: string }[] = [
   { key: 'strom', label: '⟳ Strom' },
 ];
 
+const PUBLIC_VIEWS: ViewType[] = ['graph', 'timeline', 'detail', 'impact'];
+
 export default function Header() {
-  const { view, setView } = useProjectContext();
+  const { view, setView, isPublic } = useProjectContext();
+  const navItems = isPublic
+    ? NAV_ITEMS.filter(n => PUBLIC_VIEWS.includes(n.key))
+    : NAV_ITEMS;
 
   return (
     <div className="px-6 py-3 border-b border-gray-800 flex items-center gap-4 bg-[#0d1117]">
@@ -32,7 +36,7 @@ export default function Header() {
 
       <div className="flex-1" />
 
-      {NAV_ITEMS.map(({ key, label }) => (
+      {navItems.map(({ key, label }) => (
         <button
           key={key}
           onClick={() => setView(key)}
@@ -46,14 +50,17 @@ export default function Header() {
         </button>
       ))}
 
-      <div className="w-px h-6 bg-gray-700" />
-
-      <a
-        href="/admin"
-        className="px-4 py-1.5 rounded-md border border-gray-700 text-[13px] font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-all"
-      >
-        Admin
-      </a>
+      {!isPublic && (
+        <>
+          <div className="w-px h-6 bg-gray-700" />
+          <a
+            href="/admin"
+            className="px-4 py-1.5 rounded-md border border-gray-700 text-[13px] font-medium text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-all"
+          >
+            Admin
+          </a>
+        </>
+      )}
     </div>
   );
 }

@@ -12,9 +12,13 @@ import type { CIOOProject, CIOOService, ProjectImpact, ProjectSummary, ImpactAna
 export const IMPACT_ANALYSIS_QUERY = `
   SELECT
     g.id as goal_id, g.project_id, g.project_name, g.region, g.gate as goal_gate,
-    g.month_folder, g.digital_technologies, g.change_management, g.security_impacts,
+    g.month_folder, g.summary_one_line,
+    g.digital_technologies, g.change_management, g.security_impacts,
     g.regional_impacts, g.ia_embedded, g.gio_sl_dds_impacts, g.dds_gio_workload,
-    g.business_apps_cis, g.raw_gemini_response, g.source_files, g.analyzed_at,
+    g.business_apps_cis,
+    g.dds_entities_touched, g.gio_services_touched,
+    g.tech_tags, g.vendors, g.data_classifications, g.mentioned_projects,
+    g.raw_gemini_response, g.source_files, g.analyzed_at,
     g.status as goal_status, g.error_message,
     p.name as proj_name, p.dds, p.gate as proj_gate, p.decision, p.cost_keur, p.description, p.remarks,
     p.review_date, p.link_positions, p.link_folder, p.link_cioo,
@@ -44,6 +48,7 @@ export interface GoalEntry {
   review_date: string;
   region: string;
   month_folder: string;
+  summary_one_line: string;
   digital_technologies: string;
   change_management: string;
   security_impacts: string;
@@ -52,6 +57,12 @@ export interface GoalEntry {
   gio_sl_dds_impacts: string;
   dds_gio_workload: string;
   business_apps_cis: string;
+  dds_entities_touched: string[];
+  gio_services_touched: string[];
+  tech_tags: string[];
+  vendors: string[];
+  data_classifications: string[];
+  mentioned_projects: string[];
   source_files: string;
   analyzed_at: string;
   goal_status: string;
@@ -105,11 +116,13 @@ function fetchAllProjectRecords(): ProjectFullRecord[] {
 
     // Fallback: when the projects row is a placeholder (no description), synthesize one
     // from the goal analysis so Details/Timeline/Matrix/Graph have something to render.
+    // Prefer the curated one-liner; fall back to tech/biz text.
     if (!bestDescription) {
       const g = latestByAnalyzed;
+      const summary = (g.summary_one_line as string) || '';
       const digital = (g.digital_technologies as string) || '';
       const business = (g.business_apps_cis as string) || '';
-      bestDescription = (digital || business).slice(0, 400);
+      bestDescription = (summary || digital || business).slice(0, 400);
     }
 
     // Fallback review date: project row has no review_date → use goal analysis date.
@@ -119,6 +132,12 @@ function fetchAllProjectRecords(): ProjectFullRecord[] {
       reviewDateStr = analyzedAt.slice(0, 10); // YYYY-MM-DD
     }
 
+    const parseArr = (raw: unknown): string[] => {
+      if (typeof raw !== 'string' || !raw) return [];
+      try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : []; }
+      catch { return []; }
+    };
+
     const goalEntries: GoalEntry[] = sortedEntries.map(e => ({
       goal_id: e.goal_id as number,
       gate: (e.goal_gate as string) || '',
@@ -126,6 +145,7 @@ function fetchAllProjectRecords(): ProjectFullRecord[] {
       review_date: (e.review_date as string) || '',
       region: (e.region as string) || '',
       month_folder: (e.month_folder as string) || '',
+      summary_one_line: (e.summary_one_line as string) || '',
       digital_technologies: (e.digital_technologies as string) || '',
       change_management: (e.change_management as string) || '',
       security_impacts: (e.security_impacts as string) || '',
@@ -134,6 +154,12 @@ function fetchAllProjectRecords(): ProjectFullRecord[] {
       gio_sl_dds_impacts: (e.gio_sl_dds_impacts as string) || '',
       dds_gio_workload: (e.dds_gio_workload as string) || '',
       business_apps_cis: (e.business_apps_cis as string) || '',
+      dds_entities_touched: parseArr(e.dds_entities_touched),
+      gio_services_touched: parseArr(e.gio_services_touched),
+      tech_tags:            parseArr(e.tech_tags),
+      vendors:              parseArr(e.vendors),
+      data_classifications: parseArr(e.data_classifications),
+      mentioned_projects:   parseArr(e.mentioned_projects),
       source_files: (e.source_files as string) || '',
       analyzed_at: (e.analyzed_at as string) || '',
       goal_status: (e.goal_status as string) || '',
@@ -357,12 +383,31 @@ function buildImpactPrompt(records: ProjectFullRecord[]): string {
     if (value === null || value === undefined || value === '') return '';
     return `\n  ${field}: ${value}`;
   };
+  const emitArr = (field: string, value: string[] | null | undefined): string => {
+    if (!value || value.length === 0) return '';
+    return `\n  ${field}: [${value.join(', ')}]`;
+  };
 
   for (const r of records) {
     const parts: string[] = [];
     parts.push(
       `- ${r.projectId}: "${r.name}" (DDS: ${r.dds || 'N/A'}, Gate: ${r.currentGate || 'N/A'}, Cost: ${r.costKEur ? `${r.costKEur}k€` : 'N/A'})`
     );
+
+    // Surface the canonical arrays at the top of the project block so the LLM
+    // can correlate stacks/vendors/data classes across projects without
+    // re-parsing every free-form field.
+    const latest = r.goalEntries[0];
+    if (latest) {
+      parts.push(emit('Summary', latest.summary_one_line));
+      parts.push(emitArr('Tech tags', latest.tech_tags));
+      parts.push(emitArr('Vendors', latest.vendors));
+      parts.push(emitArr('Data classifications', latest.data_classifications));
+      parts.push(emitArr('DDS entities touched', latest.dds_entities_touched));
+      parts.push(emitArr('GIO services touched', latest.gio_services_touched));
+      parts.push(emitArr('Mentions other projects', latest.mentioned_projects));
+    }
+
     parts.push(emit('Decision', r.decision));
     parts.push(emit('Review Date', r.reviewDate));
     parts.push(emit('Description', r.description));

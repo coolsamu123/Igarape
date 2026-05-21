@@ -4,7 +4,8 @@ import { useMemo } from 'react';
 import { useProjectContext } from '@/context/ProjectContext';
 
 export default function Toolbar() {
-  const { projects, filtered, links, filters, setFilters } = useProjectContext();
+  const { projects, filtered, links, filters, setFilters, view } = useProjectContext();
+  const showSeverity = view === 'impact';
 
   const ddsList = useMemo(() => {
     const vals = new Set(projects.map(p => p.dds).filter(Boolean));
@@ -57,6 +58,20 @@ export default function Toolbar() {
       >
         {decisionList.map(d => <option key={d} value={d}>{d === 'All' ? 'All Decisions' : d}</option>)}
       </select>
+
+      {showSeverity && (
+        <select
+          value={filters.severity}
+          onChange={e => setFilters({ ...filters, severity: e.target.value })}
+          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+          title="Filter impact relationships by severity"
+        >
+          <option value="All">All Severity</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      )}
 
       <span className="text-xs text-gray-500 ml-1">Year:</span>
       <select

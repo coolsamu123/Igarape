@@ -10,6 +10,7 @@ interface ProjectGoals {
   region: string;
   gate: string;
   month_folder: string;
+  summary_one_line: string;
   digital_technologies: string;
   change_management: string;
   security_impacts: string;
@@ -18,10 +19,23 @@ interface ProjectGoals {
   gio_sl_dds_impacts: string;
   dds_gio_workload: string;
   business_apps_cis: string;
+  dds_entities_touched: string;     // JSON
+  gio_services_touched: string;     // JSON
+  tech_tags: string;                // JSON
+  vendors: string;                  // JSON
+  data_classifications: string;     // JSON
+  mentioned_projects: string;       // JSON
+  prompt_version: number;
   source_files: string;
   analyzed_at: string;
   status: string;
   error_message: string;
+}
+
+function parseJsonArray(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v.filter((x: unknown) => typeof x === 'string') : []; }
+  catch { return []; }
 }
 
 interface RunStatus {
@@ -310,6 +324,41 @@ export default function GoalsView() {
                             {g.error_message}
                           </div>
                         )}
+
+                        {/* Executive one-liner */}
+                        {g.summary_one_line && (
+                          <div className="mt-4 p-3 bg-blue-950/30 border border-blue-900/40 rounded text-sm text-blue-100 leading-relaxed">
+                            <span className="text-[10px] font-bold tracking-widest text-blue-400 uppercase mr-2">Summary</span>
+                            {g.summary_one_line}
+                          </div>
+                        )}
+
+                        {/* Canonical tags surfaced as pills */}
+                        {(() => {
+                          const blocks: { label: string; items: string[]; color: string }[] = [
+                            { label: 'Tech tags',           items: parseJsonArray(g.tech_tags),            color: 'bg-blue-900/40 text-blue-200 border-blue-800/60' },
+                            { label: 'Vendors',             items: parseJsonArray(g.vendors),              color: 'bg-purple-900/40 text-purple-200 border-purple-800/60' },
+                            { label: 'Data classifications',items: parseJsonArray(g.data_classifications), color: 'bg-amber-900/40 text-amber-200 border-amber-800/60' },
+                            { label: 'DDS entities touched',items: parseJsonArray(g.dds_entities_touched), color: 'bg-emerald-900/40 text-emerald-200 border-emerald-800/60' },
+                            { label: 'GIO services touched',items: parseJsonArray(g.gio_services_touched), color: 'bg-cyan-900/40 text-cyan-200 border-cyan-800/60' },
+                            { label: 'Mentions',            items: parseJsonArray(g.mentioned_projects),   color: 'bg-gray-800 text-gray-300 border-gray-700' },
+                          ];
+                          const visible = blocks.filter(b => b.items.length > 0);
+                          if (visible.length === 0) return null;
+                          return (
+                            <div className="mt-3 space-y-2">
+                              {visible.map(b => (
+                                <div key={b.label} className="flex flex-wrap gap-1.5 items-center">
+                                  <span className="text-[10px] font-bold tracking-widest text-gray-500 uppercase w-44 shrink-0">{b.label}</span>
+                                  {b.items.map(it => (
+                                    <span key={it} className={`px-2 py-0.5 rounded text-[11px] font-mono border ${b.color}`}>{it}</span>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                           {FIELDS.map(({ key, label }) => {
                             const val = (g as unknown as Record<string, string>)[key];

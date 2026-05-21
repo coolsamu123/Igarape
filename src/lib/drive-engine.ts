@@ -8,7 +8,7 @@ import pLimit from 'p-limit';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const SERVICE_ACCOUNT_PATH = path.join(process.cwd(), 'data', 'service-account.json');
-const DRIVE_LOCAL_ROOT = path.join(process.cwd(), 'data', 'drive');
+export const DRIVE_LOCAL_ROOT = path.join(process.cwd(), 'data', 'drive');
 
 // Supported export MIME types for Google Workspace files
 const EXPORT_MIMES: Record<string, { mime: string; ext: string }> = {
@@ -36,6 +36,12 @@ const BINARY_DOWNLOADABLE = new Set([
 
 // ─── Module-level state ─────────────────────────────────────────────────────
 
+interface RecentFile {
+  projectId: string;
+  fileName: string;
+  at: string; // ISO timestamp
+}
+
 interface DriveDownloadStatus {
   isRunning: boolean;
   phase: 'idle' | 'scanning' | 'downloading';
@@ -46,7 +52,12 @@ interface DriveDownloadStatus {
   skippedFiles: number;
   errors: string[];
   currentProject: string;
+  startedAt: string | null;     // ISO when the current run started (null when idle)
+  finishedAt: string | null;    // ISO when the last run finished
+  recentFiles: RecentFile[];    // ring buffer, newest first, max 10
 }
+
+const RECENT_FILES_MAX = 10;
 
 let downloadStatus: DriveDownloadStatus = {
   isRunning: false,
@@ -58,11 +69,21 @@ let downloadStatus: DriveDownloadStatus = {
   skippedFiles: 0,
   errors: [],
   currentProject: '',
+  startedAt: null,
+  finishedAt: null,
+  recentFiles: [],
 };
+
+function pushRecentFile(projectId: string, fileName: string) {
+  downloadStatus.recentFiles = [
+    { projectId, fileName, at: new Date().toISOString() },
+    ...downloadStatus.recentFiles,
+  ].slice(0, RECENT_FILES_MAX);
+}
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
-function getDriveClient() {
+export function getDriveClient() {
   if (!fs.existsSync(SERVICE_ACCOUNT_PATH)) {
     throw new Error('Service account key not found at data/service-account.json');
   }
@@ -102,7 +123,7 @@ export function extractDriveId(url: string): string | null {
 
 // ─── Download a single file ─────────────────────────────────────────────────
 
-async function downloadFile(
+export async function downloadFile(
   drive: ReturnType<typeof google.drive>,
   fileId: string,
   localDir: string
@@ -209,7 +230,7 @@ async function downloadFile(
 
 // ─── List files in a folder ─────────────────────────────────────────────────
 
-async function listFolderFiles(
+export async function listFolderFiles(
   drive: ReturnType<typeof google.drive>,
   folderId: string,
   depth: number = 0,
@@ -309,6 +330,7 @@ async function processUrl(
              results.push(result);
              if (result.localPath) {
                  downloadStatus.downloadedFiles++;
+                 pushRecentFile(projectId, f.name);
              }
           }
         } catch (err: unknown) {
@@ -329,6 +351,7 @@ async function processUrl(
             results.push(result);
             if (result.localPath) {
                 downloadStatus.downloadedFiles++;
+                pushRecentFile(projectId, result.name || actualId);
             }
         }
       } catch (err: unknown) {
@@ -366,6 +389,9 @@ export async function runDriveDownloadSingle(projectId: string): Promise<void> {
     skippedFiles: 0,
     errors: [],
     currentProject: 'Initializing...',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    recentFiles: [],
   };
 
   try {
@@ -447,25 +473,52 @@ export async function runDriveDownloadSingle(projectId: string): Promise<void> {
     downloadStatus.errors.push(`Fatal: ${msg}`);
   } finally {
     downloadStatus.isRunning = false;
+    downloadStatus.finishedAt = new Date().toISOString();
   }
 }
 
 // ─── Discover project from GDrive Link ─────────────────────────────────────
 
-export async function discoverAndAddProjectFromDrive(url: string): Promise<{ added: { projectId: string; name: string }[] }> {
+// Accepts: PRJ12345, PRJ-12345, PRJ_12345, PRJ 12345, PRJ12345TR, etc.
+// The optional separator between PRJ and the digits handles the common
+// Air-Liquide naming where folders are titled like "PRJ-0018641 Foo Bar".
+const PRJ_FOLDER_REGEX = /PRJ[\s\-_]*([0-9]+)([A-Z]{0,4})/i;
+
+// Normalize a raw PRJ-ish string from a folder name into the canonical key
+// (uppercase, no separators). Returns the original digits as captured, plus a
+// numeric-only key (leading zeros stripped) for fallback matching against
+// projects whose IDs differ only in zero-padding.
+function normalizePrjMatch(raw: string): { canonical: string; digitsKey: string } {
+  const m = raw.match(PRJ_FOLDER_REGEX);
+  if (!m) return { canonical: '', digitsKey: '' };
+  const digits = m[1];
+  const suffix = (m[2] || '').toUpperCase();
+  return {
+    canonical: `PRJ${digits}${suffix}`,
+    digitsKey: `${String(parseInt(digits, 10))}${suffix}`, // "0018641" → "18641"
+  };
+}
+
+export async function discoverAndAddProjectFromDrive(url: string): Promise<{
+  created:   { projectId: string; name: string }[];
+  linked:    { projectId: string; name: string }[];
+  unmatched: { folderName: string; extracted: string }[];
+  scannedFolders: number;
+}> {
   const drive = getDriveClient();
   const rootId = extractDriveId(url);
-  
+
   if (!rootId) {
     throw new Error('Invalid Google Drive URL');
   }
 
-  const foundProjects: { id: string; name: string; projectId: string }[] = [];
+  const foundProjects: { id: string; folderName: string; canonical: string; digitsKey: string }[] = [];
+  let scannedFolders = 0;
 
   // Recursive search for all PRJ folders
   async function searchForProjectFolders(folderId: string, depth: number = 0): Promise<void> {
     if (depth > 5) return;
-    
+
     try {
       // First get this folder's name to see if it's the one
       const folderMeta = await drive.files.get({
@@ -473,12 +526,13 @@ export async function discoverAndAddProjectFromDrive(url: string): Promise<{ add
         fields: 'id,name',
         supportsAllDrives: true,
       });
-      
+
+      scannedFolders++;
       const name = folderMeta.data.name || '';
-      const prjMatch = name.match(/PRJ[0-9]+/i);
-      
-      if (prjMatch) {
-        foundProjects.push({ id: folderId, name, projectId: prjMatch[0].toUpperCase() });
+      const { canonical, digitsKey } = normalizePrjMatch(name);
+
+      if (canonical) {
+        foundProjects.push({ id: folderId, folderName: name, canonical, digitsKey });
         // If it's a project folder, we don't need to recurse deeper inside it for discovery
         return;
       }
@@ -502,32 +556,58 @@ export async function discoverAndAddProjectFromDrive(url: string): Promise<{ add
   }
 
   await searchForProjectFolders(rootId);
-  
-  if (foundProjects.length === 0) {
-    throw new Error('Could not find any folders containing PRJXXXXX in their names');
-  }
 
   const db = getDb();
-  const added: { projectId: string; name: string }[] = [];
-  
-  for (const proj of foundProjects) {
-    const folderLink = `https://drive.google.com/drive/folders/${proj.id}`;
-    
-    // Upsert project manually without ON CONFLICT
-    const existing = db.prepare('SELECT id, link_folder FROM projects WHERE project_id = ?').get(proj.projectId) as { link_folder?: string } | undefined;
-    if (existing) {
-      const newLinkFolder = existing.link_folder 
-        ? (existing.link_folder.includes(folderLink) ? existing.link_folder : existing.link_folder + ' ' + folderLink)
-        : folderLink;
-      db.prepare('UPDATE projects SET link_folder = ? WHERE project_id = ?').run(newLinkFolder, proj.projectId);
-    } else {
-      db.prepare('INSERT INTO projects (project_id, name, link_folder) VALUES (?, ?, ?)').run(proj.projectId, proj.name, folderLink);
+  const created: { projectId: string; name: string }[] = [];
+  const linked:  { projectId: string; name: string }[] = [];
+  const unmatched: { folderName: string; extracted: string }[] = [];
+
+  // Build a digit-key index of existing projects so we can match folders whose
+  // PRJ id differs only by zero-padding (e.g. folder "PRJ-18641" → DB "PRJ0018641").
+  const existingRows = db.prepare(
+    "SELECT project_id, name, link_folder FROM projects WHERE project_id LIKE 'PRJ%'"
+  ).all() as Array<{ project_id: string; name: string | null; link_folder: string | null }>;
+  const byCanonical = new Map<string, { project_id: string; name: string | null; link_folder: string | null }>();
+  const byDigits    = new Map<string, { project_id: string; name: string | null; link_folder: string | null }>();
+  for (const row of existingRows) {
+    byCanonical.set(row.project_id.toUpperCase(), row);
+    const dm = row.project_id.match(/^PRJ([0-9]+)([A-Z]*)$/i);
+    if (dm) {
+      const key = `${String(parseInt(dm[1], 10))}${(dm[2] || '').toUpperCase()}`;
+      byDigits.set(key, row);
     }
-    
-    added.push({ projectId: proj.projectId, name: proj.name });
   }
 
-  return { added };
+  for (const proj of foundProjects) {
+    const folderLink = `https://drive.google.com/drive/folders/${proj.id}`;
+
+    // Try exact canonical match first; fall back to digit-key match.
+    let existing = byCanonical.get(proj.canonical);
+    let matchedProjectId = proj.canonical;
+    if (!existing) {
+      const fallback = byDigits.get(proj.digitsKey);
+      if (fallback) {
+        existing = fallback;
+        matchedProjectId = fallback.project_id;
+      }
+    }
+
+    if (existing) {
+      const newLinkFolder = existing.link_folder
+        ? (existing.link_folder.includes(folderLink) ? existing.link_folder : existing.link_folder + ' ' + folderLink)
+        : folderLink;
+      db.prepare('UPDATE projects SET link_folder = ? WHERE project_id = ?').run(newLinkFolder, matchedProjectId);
+      linked.push({ projectId: matchedProjectId, name: existing.name || proj.folderName });
+    } else {
+      // No match anywhere → create a new stub. The user explicitly opted in to
+      // "if not exists, create" semantics, so this is expected.
+      db.prepare('INSERT INTO projects (project_id, name, link_folder) VALUES (?, ?, ?)').run(proj.canonical, proj.folderName, folderLink);
+      created.push({ projectId: proj.canonical, name: proj.folderName });
+      unmatched.push({ folderName: proj.folderName, extracted: proj.canonical });
+    }
+  }
+
+  return { created, linked, unmatched, scannedFolders };
 }
 
 export async function runDriveDownload(): Promise<void> {
@@ -545,6 +625,9 @@ export async function runDriveDownload(): Promise<void> {
     skippedFiles: 0,
     errors: [],
     currentProject: 'Initializing...',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    recentFiles: [],
   };
 
   try {
@@ -644,6 +727,7 @@ export async function runDriveDownload(): Promise<void> {
               // Handled by the generic file incrementer logic inside processUrl for uniformity
               downloadStatus.totalFiles++;
               downloadStatus.downloadedFiles++;
+              pushRecentFile(proj.projectId, path.basename(localPath));
               upsertDoc.run(url, textContent.slice(0, 30000), 'local_folder');
             } else {
               upsertDocError.run(url, 'Local path does not exist');
@@ -680,6 +764,7 @@ export async function runDriveDownload(): Promise<void> {
     downloadStatus.errors.push(`Fatal: ${msg}`);
   } finally {
     downloadStatus.isRunning = false;
+    downloadStatus.finishedAt = new Date().toISOString();
   }
 }
 
@@ -804,6 +889,9 @@ export function resetDriveData(): void {
     skippedFiles: 0,
     errors: [],
     currentProject: '',
+    startedAt: null,
+    finishedAt: null,
+    recentFiles: [],
   };
 }
 

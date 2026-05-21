@@ -9,7 +9,8 @@ import { buildDrivePanelState } from '@/lib/drive-panel-state';
 // During an active pipeline run we tick faster so counters stay live.
 
 const TICK_FAST_MS = 1000;
-const TICK_IDLE_MS = 4000;
+const TICK_SYNC_MS = 500;   // Faster while Sync-all is active so per-row bars feel live.
+const TICK_IDLE_MS = 2000;  // Snappy enough that starting Sync-all reflects within ~2s.
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,8 @@ export async function GET() {
             lastPayload = json;
             send('state', state);
           }
-          const delay = state.pipeline.isRunning ? TICK_FAST_MS : TICK_IDLE_MS;
+          const syncActive = state.syncAll.status === 'running' || state.syncAll.status === 'stopping';
+          const delay = syncActive ? TICK_SYNC_MS : state.pipeline.isRunning ? TICK_FAST_MS : TICK_IDLE_MS;
           setTimeout(tick, delay);
         } catch (err) {
           send('error', { message: err instanceof Error ? err.message : 'tick failed' });

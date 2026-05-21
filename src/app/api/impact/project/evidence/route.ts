@@ -24,6 +24,7 @@ interface ProjectEvidence {
     history: Array<{ gate: string; decision: string; reviewDate: string }>;
   };
   goals: {
+    summary: string;
     digitalTechnologies: string;
     changeManagement: string;
     securityImpacts: string;
@@ -32,6 +33,13 @@ interface ProjectEvidence {
     gioSlDdsImpacts: string;
     ddsGioWorkload: string;
     businessAppsCis: string;
+    ddsEntitiesTouched: string[];
+    gioServicesTouched: string[];
+    techTags: string[];
+    vendors: string[];
+    dataClassifications: string[];
+    mentionedProjects: string[];
+    promptVersion: number;
     region: string;
     monthFolder: string;
     analyzedAt: string;
@@ -71,6 +79,7 @@ interface ProjectRow {
 }
 
 interface GoalsRow {
+  summary_one_line: string;
   digital_technologies: string;
   change_management: string;
   security_impacts: string;
@@ -79,6 +88,13 @@ interface GoalsRow {
   gio_sl_dds_impacts: string;
   dds_gio_workload: string;
   business_apps_cis: string;
+  dds_entities_touched: string;
+  gio_services_touched: string;
+  tech_tags: string;
+  vendors: string;
+  data_classifications: string;
+  mentioned_projects: string;
+  prompt_version: number | null;
   region: string;
   month_folder: string;
   analyzed_at: string;
@@ -120,14 +136,24 @@ export async function GET(request: NextRequest) {
 
     // 3) Goals analysis (latest by analyzed_at).
     const goalsRow = db.prepare(`
-      SELECT digital_technologies, change_management, security_impacts, regional_impacts,
+      SELECT summary_one_line,
+             digital_technologies, change_management, security_impacts, regional_impacts,
              ia_embedded, gio_sl_dds_impacts, dds_gio_workload, business_apps_cis,
+             dds_entities_touched, gio_services_touched,
+             tech_tags, vendors, data_classifications, mentioned_projects,
+             prompt_version,
              region, month_folder, analyzed_at, source_files, raw_gemini_response, status
       FROM project_goals
       WHERE project_id = ?
       ORDER BY analyzed_at DESC
       LIMIT 1
     `).get(projectId) as GoalsRow | undefined;
+
+    const parseArr = (raw: string | null | undefined): string[] => {
+      if (!raw) return [];
+      try { const v = JSON.parse(raw); return Array.isArray(v) ? v.filter((x: unknown) => typeof x === 'string') : []; }
+      catch { return []; }
+    };
 
     // 4) Documents (excerpts only)
     const docs = getProjectDocuments(projectId).map(d => ({
@@ -178,6 +204,7 @@ export async function GET(request: NextRequest) {
         })),
       },
       goals: goalsRow ? {
+        summary: goalsRow.summary_one_line || '',
         digitalTechnologies: goalsRow.digital_technologies || '',
         changeManagement: goalsRow.change_management || '',
         securityImpacts: goalsRow.security_impacts || '',
@@ -186,6 +213,13 @@ export async function GET(request: NextRequest) {
         gioSlDdsImpacts: goalsRow.gio_sl_dds_impacts || '',
         ddsGioWorkload: goalsRow.dds_gio_workload || '',
         businessAppsCis: goalsRow.business_apps_cis || '',
+        ddsEntitiesTouched: parseArr(goalsRow.dds_entities_touched),
+        gioServicesTouched: parseArr(goalsRow.gio_services_touched),
+        techTags:            parseArr(goalsRow.tech_tags),
+        vendors:             parseArr(goalsRow.vendors),
+        dataClassifications: parseArr(goalsRow.data_classifications),
+        mentionedProjects:   parseArr(goalsRow.mentioned_projects),
+        promptVersion: goalsRow.prompt_version ?? 0,
         region: goalsRow.region || '',
         monthFolder: goalsRow.month_folder || '',
         analyzedAt: goalsRow.analyzed_at || '',
