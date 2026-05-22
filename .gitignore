@@ -39,6 +39,7 @@ next-env.d.ts
 /data/cioo.db
 /data/cioo.db-wal
 /data/cioo.db-shm
+/data/database.sqlite
 /data/uploads/
 /data/service-account.json
 /data/drive/
@@ -49,6 +50,10 @@ next-env.d.ts
 /fix_lint*.js
 /patch_*.js
 /test_*.js
+/test-*.js
+
+# Claude Code local state
+/.claude/
 
 # logs
 /logs/
