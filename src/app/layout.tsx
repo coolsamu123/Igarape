@@ -13,6 +13,22 @@ export const metadata: Metadata = {
   },
 };
 
+// Runs before React hydrates so the page never paints with the wrong theme.
+// Reads localStorage('strom-theme'); falls back to prefers-color-scheme.
+const THEME_BOOT = `
+(function(){
+  try {
+    var t = localStorage.getItem('strom-theme');
+    if (t !== 'light' && t !== 'dark') {
+      t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -20,7 +36,10 @@ export default function RootLayout({
 }>) {
   const isPublic = isPublicHost(headers().get('host'));
   return (
-    <html lang="en">
+    <html lang="en" data-theme="dark">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      </head>
       <body className="antialiased">
         <ProjectProvider isPublic={isPublic}>
           {children}

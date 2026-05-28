@@ -100,7 +100,7 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
 
   if (loading) {
     return (
-      <div className={`bg-gray-900/70 border border-gray-800 rounded-lg ${padCls} text-gray-500 text-xs animate-pulse`}>
+      <div className={`bg-surface-1/70 border border-line rounded-lg ${padCls} text-ink-muted text-xs animate-pulse`}>
         Loading evidence…
       </div>
     );
@@ -117,10 +117,10 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
   const { project, goals, documents } = data;
 
   return (
-    <div className={`bg-gray-900/40 border border-gray-800 rounded-lg ${padCls} space-y-4`}>
+    <div className={`bg-surface-1/40 border border-line rounded-lg ${padCls} space-y-4`}>
       {/* ─── Project metadata ──────────────────────────────────────────── */}
       <Section title="Project metadata" titleCls={titleCls}>
-        <dl className={`grid grid-cols-2 gap-x-4 gap-y-1 ${bodyCls} text-gray-300`}>
+        <dl className={`grid grid-cols-2 gap-x-4 gap-y-1 ${bodyCls} text-ink-3`}>
           <Field label="DDS owner" value={project.dds} color={getDDSColor(project.dds)} />
           <Field label="Current gate" value={project.currentGate} />
           <Field label="Decision" value={`${project.decision}${project.decisionMode ? ` (${project.decisionMode})` : ''}`} />
@@ -169,13 +169,13 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
             <GoalsField label="Change management"       text={goals.changeManagement} bodyCls={bodyCls} />
           </div>
           {goals.sourceFiles.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-800">
-              <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+            <div className="mt-3 pt-3 border-t border-line">
+              <div className="text-[10px] uppercase tracking-wider text-ink-muted mb-1.5">
                 Source files used by Goals analysis ({goals.sourceFiles.length})
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {goals.sourceFiles.map(f => (
-                  <span key={f} className="text-[10px] font-mono bg-gray-800/60 text-gray-400 px-1.5 py-0.5 rounded border border-gray-700/60">
+                  <span key={f} className="text-[10px] font-mono bg-surface-2/60 text-ink-4 px-1.5 py-0.5 rounded border border-line-strong/60">
                     {f}
                   </span>
                 ))}
@@ -185,7 +185,7 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
         </Section>
       ) : (
         <Section title="Goals Extractor" titleCls={titleCls}>
-          <div className={`${bodyCls} text-gray-500 italic`}>
+          <div className={`${bodyCls} text-ink-muted italic`}>
             No Goals analysis on record for this project.
           </div>
         </Section>
@@ -202,16 +202,16 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
                 <li key={doc.url}>
                   <button
                     onClick={() => setOpenDocUrl(opened ? null : doc.url)}
-                    className={`w-full text-left px-2 py-1 rounded ${bodyCls} hover:bg-gray-800/50 transition-colors flex items-center gap-2`}
+                    className={`w-full text-left px-2 py-1 rounded ${bodyCls} hover:bg-surface-2/50 transition-colors flex items-center gap-2`}
                   >
-                    <span className="text-gray-400">{opened ? '▾' : '▸'}</span>
-                    <span className="font-mono text-gray-300 truncate flex-1" title={doc.url}>{filename}</span>
-                    <span className="text-[10px] text-gray-500 shrink-0">
+                    <span className="text-ink-4">{opened ? '▾' : '▸'}</span>
+                    <span className="font-mono text-ink-3 truncate flex-1" title={doc.url}>{filename}</span>
+                    <span className="text-[10px] text-ink-muted shrink-0">
                       {doc.fetchStatus === 'success' ? `${doc.fullLength} chars` : doc.fetchStatus}
                     </span>
                   </button>
                   {opened && doc.excerpt && (
-                    <pre className={`mt-1 ml-5 ${bodyCls} text-gray-400 bg-gray-950/60 border border-gray-800 rounded px-2 py-1.5 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto`}>
+                    <pre className={`mt-1 ml-5 ${bodyCls} text-ink-4 bg-surface-deep/60 border border-line rounded px-2 py-1.5 whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-y-auto`}>
                       {doc.excerpt}
                       {doc.fullLength > doc.excerpt.length && '\n…'}
                     </pre>
@@ -226,11 +226,11 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
       {/* ─── Gate history ──────────────────────────────────────────────── */}
       {project.history.length > 1 && (
         <Section title={`Gate history (${project.history.length} reviews)`} titleCls={titleCls}>
-          <ul className={`${bodyCls} text-gray-300 space-y-1`}>
+          <ul className={`${bodyCls} text-ink-3 space-y-1`}>
             {project.history.map((h, i) => (
               <li key={i} className="flex gap-3 font-mono">
-                <span className="text-gray-500 shrink-0 w-24">{h.reviewDate || '—'}</span>
-                <span className="text-blue-300 shrink-0 w-12">Gate {h.gate || '—'}</span>
+                <span className="text-ink-muted shrink-0 w-24">{h.reviewDate || '—'}</span>
+                <span className="text-accent-text shrink-0 w-12">Gate {h.gate || '—'}</span>
                 <span className="text-emerald-300">{h.decision || '—'}</span>
               </li>
             ))}
@@ -241,7 +241,7 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
       {/* ─── Deep dive (LLM-generated detailed analysis) ─────────────────── */}
       {deepDiveTargets.length > 0 && (
         <Section title="Deep dive analyses (AI)" titleCls={titleCls}>
-          <div className={`${bodyCls} text-gray-500 mb-2`}>
+          <div className={`${bodyCls} text-ink-muted mb-2`}>
             Generate or read a detailed, evidence-backed analysis for each connection.
           </div>
           <div className="space-y-2">
@@ -355,9 +355,9 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
       </button>
 
       {open && (
-        <div className="bg-gray-950/70 border border-t-0 border-gray-800 rounded-b-lg px-3 py-2.5">
+        <div className="bg-surface-deep/70 border border-t-0 border-line rounded-b-lg px-3 py-2.5">
           {state === 'loading' && (
-            <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-gray-400 leading-relaxed`}>
+            <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-ink-4 leading-relaxed`}>
               Generating detailed analysis (typical: 15-40s)…
             </div>
           )}
@@ -366,32 +366,32 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
           )}
           {state === 'done' && response && (
             <>
-              <div className={`prose-deep-dive ${compact ? 'text-[11px]' : 'text-xs'} text-gray-200 leading-relaxed`}>
+              <div className={`prose-deep-dive ${compact ? 'text-[11px]' : 'text-xs'} text-ink-2 leading-relaxed`}>
                 <ReactMarkdown
                   components={{
                     h2: ({ children }) => (
-                      <div className="text-[11px] font-bold text-gray-100 uppercase tracking-wider mt-3 mb-1.5 first:mt-0">
+                      <div className="text-[11px] font-bold text-ink-1 uppercase tracking-wider mt-3 mb-1.5 first:mt-0">
                         {children}
                       </div>
                     ),
                     h3: ({ children }) => (
-                      <div className="text-[11px] font-semibold text-gray-200 mt-2 mb-1">{children}</div>
+                      <div className="text-[11px] font-semibold text-ink-2 mt-2 mb-1">{children}</div>
                     ),
                     p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                     ul: ({ children }) => <ul className="list-disc pl-5 space-y-0.5 mb-2">{children}</ul>,
                     ol: ({ children }) => <ol className="list-decimal pl-5 space-y-0.5 mb-2">{children}</ol>,
                     li: ({ children }) => <li>{children}</li>,
-                    strong: ({ children }) => <strong className="text-gray-100">{children}</strong>,
-                    em: ({ children }) => <em className="text-gray-300">{children}</em>,
+                    strong: ({ children }) => <strong className="text-ink-1">{children}</strong>,
+                    em: ({ children }) => <em className="text-ink-3">{children}</em>,
                     code: ({ children }) => (
-                      <code className="font-mono bg-gray-800/70 text-emerald-300 px-1 rounded">{children}</code>
+                      <code className="font-mono bg-surface-2/70 text-emerald-300 px-1 rounded">{children}</code>
                     ),
                   }}
                 >
                   {response.responseMd}
                 </ReactMarkdown>
               </div>
-              <div className="text-[10px] text-gray-500 mt-3 pt-2 border-t border-gray-800 font-mono">
+              <div className="text-[10px] text-ink-muted mt-3 pt-2 border-t border-line font-mono">
                 {response.llmProvider}/{response.llmModel} · {response.durationMs ? `${(response.durationMs / 1000).toFixed(1)}s` : '—'} · generated {response.generatedAt.slice(0, 10)}
               </div>
             </>
@@ -407,7 +407,7 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
 function Section({ title, children, titleCls }: { title: string; children: React.ReactNode; titleCls: string }) {
   return (
     <div>
-      <div className={`${titleCls} font-bold text-gray-200 uppercase tracking-wider mb-2`}>{title}</div>
+      <div className={`${titleCls} font-bold text-ink-2 uppercase tracking-wider mb-2`}>{title}</div>
       {children}
     </div>
   );
@@ -416,8 +416,8 @@ function Section({ title, children, titleCls }: { title: string; children: React
 function Field({ label, value, color, truncate }: { label: string; value: string; color?: string; truncate?: boolean }) {
   return (
     <div className="flex gap-1.5 min-w-0">
-      <dt className="text-gray-500 shrink-0">{label}:</dt>
-      <dd className={`text-gray-200 ${truncate ? 'truncate' : ''}`} style={color ? { color } : undefined} title={value}>
+      <dt className="text-ink-muted shrink-0">{label}:</dt>
+      <dd className={`text-ink-2 ${truncate ? 'truncate' : ''}`} style={color ? { color } : undefined} title={value}>
         {value || '—'}
       </dd>
     </div>
@@ -427,8 +427,8 @@ function Field({ label, value, color, truncate }: { label: string; value: string
 function Para({ label, body, bodyCls }: { label: string; body: string; bodyCls: string }) {
   return (
     <div className="mb-2 last:mb-0">
-      <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">{label}</div>
-      <div className={`${bodyCls} text-gray-300 leading-relaxed whitespace-pre-wrap`}>{body}</div>
+      <div className="text-[10px] uppercase tracking-wider text-ink-muted mb-0.5">{label}</div>
+      <div className={`${bodyCls} text-ink-3 leading-relaxed whitespace-pre-wrap`}>{body}</div>
     </div>
   );
 }
@@ -437,15 +437,15 @@ function GoalsField({ label, text, bodyCls, highlighted }: { label: string; text
   if (!text || text === 'Not identified in available documentation') {
     return (
       <div className={`flex gap-3 ${bodyCls}`}>
-        <span className="text-gray-500 w-44 shrink-0">{label}</span>
-        <span className="text-gray-600 italic">Not identified</span>
+        <span className="text-ink-muted w-44 shrink-0">{label}</span>
+        <span className="text-ink-faint italic">Not identified</span>
       </div>
     );
   }
   return (
-    <div className={`${bodyCls} ${highlighted ? 'bg-blue-950/20 border-l-2 border-blue-500/60 pl-2 py-1 rounded-r' : ''}`}>
-      <span className="text-gray-500 mr-2">{label}:</span>
-      <span className="text-gray-200 leading-relaxed whitespace-pre-wrap">{text}</span>
+    <div className={`${bodyCls} ${highlighted ? 'bg-accent-soft border-l-2 border-accent-border/60 pl-2 py-1 rounded-r' : ''}`}>
+      <span className="text-ink-muted mr-2">{label}:</span>
+      <span className="text-ink-2 leading-relaxed whitespace-pre-wrap">{text}</span>
     </div>
   );
 }
@@ -457,7 +457,7 @@ function ExtLink({ href, label }: { href: string; label: string }) {
       target="_blank"
       rel="noopener noreferrer"
       onClick={e => e.stopPropagation()}
-      className="text-[10px] px-2 py-0.5 rounded bg-blue-900/30 text-blue-300 border border-blue-800/50 hover:bg-blue-800/50 transition-colors"
+      className="text-[10px] px-2 py-0.5 rounded bg-accent-soft text-accent-text border border-accent-border/50 hover:bg-accent-soft transition-colors"
     >
       ↗ {label}
     </a>

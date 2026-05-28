@@ -53,6 +53,13 @@ interface ProjectContextType {
   // Cloudflare tunnel). Public mode hides admin-only views (Goals, Drive Sync,
   // Strom, Universe). Determined server-side from the Host header.
   isPublic: boolean;
+
+  // Color theme — available to every user (public + admin). Persisted in
+  // localStorage; initial value comes from the inline anti-flash script in
+  // layout.tsx so React hydration matches the painted DOM.
+  theme: 'light' | 'dark';
+  setTheme: (t: 'light' | 'dark') => void;
+  toggleTheme: () => void;
 }
 
 const ProjectContext = createContext<ProjectContextType | null>(null);
@@ -81,6 +88,22 @@ export function ProjectProvider({ children, isPublic = false }: { children: Reac
   });
   const [analysisResults, setAnalysisResults] = useState<Map<string, AnalysisResult>>(new Map());
   const [goalsProjectIds, setGoalsProjectIds] = useState<Set<string>>(new Set());
+
+  // Theme is set pre-hydration by the inline script in layout.tsx, so we read
+  // it from <html data-theme> on mount instead of guessing and risking a flash.
+  const [theme, setThemeState] = useState<'light' | 'dark'>('dark');
+  useEffect(() => {
+    const current = document.documentElement.getAttribute('data-theme');
+    if (current === 'light' || current === 'dark') setThemeState(current);
+  }, []);
+  const setTheme = useCallback((t: 'light' | 'dark') => {
+    setThemeState(t);
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('strom-theme', t); } catch { /* private mode */ }
+  }, []);
+  const toggleTheme = useCallback(() => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  }, [theme, setTheme]);
 
   // Initial fetch of impacts + which projects have successful goals.
   useEffect(() => {
@@ -264,6 +287,7 @@ export function ProjectProvider({ children, isPublic = false }: { children: Reac
       filtered, filteredWithSignal, uploadFile, refreshProjects,
       analyzeProjects, analyzeWithDocs, analysisResults,
       isPublic,
+      theme, setTheme, toggleTheme,
     }}>
       {children}
     </ProjectContext.Provider>

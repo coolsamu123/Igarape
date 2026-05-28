@@ -103,14 +103,14 @@ export default function TimelineView() {
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-lg font-bold text-gray-100">Review Timeline</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <h2 className="text-lg font-bold text-ink-1">Review Timeline</h2>
+          <p className="text-xs text-ink-4 mt-0.5">
             {projects.length} projects across {monthKeys.length} months
           </p>
         </div>
         <button
           onClick={() => setSortOrder(s => s === 'desc' ? 'asc' : 'desc')}
-          className="px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-300 hover:bg-gray-700 transition-colors"
+          className="px-3 py-1.5 rounded-lg bg-surface-2 border border-line-strong text-xs text-ink-3 hover:bg-surface-3 transition-colors"
         >
           {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
         </button>
@@ -121,7 +121,7 @@ export default function TimelineView() {
         <select
           value={filterDDS}
           onChange={e => setFilterDDS(e.target.value)}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+          className="bg-surface-2 border border-line-strong text-ink-2 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-accent-border"
         >
           <option value="All">All DDS</option>
           {ddsOptions.map(d => (
@@ -131,7 +131,7 @@ export default function TimelineView() {
         <select
           value={filterGate}
           onChange={e => setFilterGate(e.target.value)}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+          className="bg-surface-2 border border-line-strong text-ink-2 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-accent-border"
         >
           <option value="All">All Gates</option>
           {gateOptions.map(g => <option key={g} value={g}>Gate {g}</option>)}
@@ -139,7 +139,7 @@ export default function TimelineView() {
         <select
           value={filterDecision}
           onChange={e => setFilterDecision(e.target.value)}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+          className="bg-surface-2 border border-line-strong text-ink-2 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-accent-border"
         >
           <option value="All">All Decisions</option>
           {decisionOptions.map(d => <option key={d} value={d}>{d}</option>)}
@@ -148,14 +148,14 @@ export default function TimelineView() {
 
       {/* Timeline */}
       {projects.length === 0 ? (
-        <div className="text-center text-gray-500 py-20">
-          <div className="text-lg font-semibold text-gray-300 mb-2">No projects match the current filters</div>
+        <div className="text-center text-ink-muted py-20">
+          <div className="text-lg font-semibold text-ink-3 mb-2">No projects match the current filters</div>
           <div className="text-sm">Try adjusting the filters above</div>
         </div>
       ) : (
         <div className="relative">
           {/* Vertical line */}
-          <div className="absolute left-[120px] top-0 bottom-0 w-px bg-gray-800" />
+          <div className="absolute left-[120px] top-0 bottom-0 w-px bg-surface-2" />
 
           {monthKeys.map(month => {
             const items = grouped.get(month)!;
@@ -168,13 +168,13 @@ export default function TimelineView() {
                 {/* Month header */}
                 <div className="flex items-center mb-4">
                   <div className="w-[120px] shrink-0 text-right pr-5">
-                    <div className={`text-sm font-bold ${isCurrent ? 'text-blue-400' : 'text-gray-200'}`}>
+                    <div className={`text-sm font-bold ${isCurrent ? 'text-accent-text2' : 'text-ink-2'}`}>
                       {monthLabel(month)}
                     </div>
-                    <div className="text-[10px] text-gray-500">{items.length} review{items.length !== 1 ? 's' : ''}</div>
+                    <div className="text-[10px] text-ink-muted">{items.length} review{items.length !== 1 ? 's' : ''}</div>
                   </div>
-                  <div className={`w-3 h-3 rounded-full shrink-0 -ml-[6px] z-10 border-2 border-[#0a0e1a] ${isCurrent ? 'bg-blue-500' : 'bg-gray-600'}`} />
-                  <div className={`flex-1 h-px ml-4 ${isCurrent ? 'bg-blue-500/30' : 'bg-gray-800'}`} />
+                  <div className={`w-3 h-3 rounded-full shrink-0 -ml-[6px] z-10 border-2 border-bg ${isCurrent ? 'bg-accent' : 'bg-surface-3'}`} />
+                  <div className={`flex-1 h-px ml-4 ${isCurrent ? 'bg-accent/30' : 'bg-surface-2'}`} />
                 </div>
 
                 {/* Compact project rows for this month */}
@@ -187,12 +187,11 @@ export default function TimelineView() {
                       <div
                         key={`${p.projectId}-${p.reviewDate}`}
                         onClick={() => setSelected(isSelected ? null : p.projectId)}
-                        className={`flex items-center gap-2 bg-gray-900/60 border border-gray-800/60 rounded-lg px-3 py-1.5 hover:bg-gray-800/50 hover:border-gray-700 transition-colors cursor-pointer
-                          ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : ''}`}
-                        style={{ borderLeftColor: ddsColor, borderLeftWidth: '3px' }}
+                        className={`flex items-center gap-2 bg-surface-1/60 border border-line rounded-lg px-3 py-1.5 hover:bg-surface-2/50 hover:border-line-strong transition-colors cursor-pointer
+                          ${isSelected ? 'border-accent-border ring-1 ring-accent-border/30' : ''}`}
                       >
                         {/* Date */}
-                        <span className="text-[10px] text-gray-500 font-mono w-[72px] shrink-0">
+                        <span className="text-[10px] text-ink-muted font-mono w-[72px] shrink-0">
                           {p.reviewDateRaw}
                         </span>
 
@@ -205,7 +204,7 @@ export default function TimelineView() {
                         {p.currentGate ? (
                           <span
                             className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0"
-                            style={{ background: `${getGateColor(p.currentGate)}20`, color: getGateColor(p.currentGate) }}
+                            style={{ background: `${getGateColor(p.currentGate)}20`, color: `color-mix(in srgb, ${getGateColor(p.currentGate)} 70%, var(--ink-1))` }}
                           >
                             G{p.currentGate}
                           </span>
@@ -215,14 +214,14 @@ export default function TimelineView() {
                         {p.latestDecision ? (
                           <span
                             className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0"
-                            style={{ background: `${getDecisionColor(p.latestDecision)}22`, color: getDecisionColor(p.latestDecision) }}
+                            style={{ background: `${getDecisionColor(p.latestDecision)}22`, color: `color-mix(in srgb, ${getDecisionColor(p.latestDecision)} 70%, var(--ink-1))` }}
                           >
                             {p.latestDecision}
                           </span>
                         ) : <span className="w-10 shrink-0" />}
 
                         {/* Name */}
-                        <span className="text-[11px] text-gray-300 truncate flex-1 min-w-0">
+                        <span className="text-[11px] text-ink-3 truncate flex-1 min-w-0">
                           {p.name && p.name !== p.projectId ? p.name : ''}
                         </span>
 
@@ -230,7 +229,7 @@ export default function TimelineView() {
                         {p.dds && (
                           <span
                             className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0"
-                            style={{ background: `${ddsColor}18`, color: ddsColor }}
+                            style={{ background: `${ddsColor}18`, color: `color-mix(in srgb, ${ddsColor} 70%, var(--ink-1))` }}
                           >
                             {p.dds}
                           </span>

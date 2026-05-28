@@ -67,8 +67,8 @@ export default function AIAnalysisPanel({ project, relatedProjects }: Props) {
   };
 
   return (
-    <div className="border-t border-gray-700 pt-3 mt-1">
-      <div className="text-[10px] text-gray-500 font-bold tracking-widest mb-2">AI ANALYSIS (Gemini)</div>
+    <div className="border-t border-line-strong pt-3 mt-1">
+      <div className="text-[10px] text-ink-muted font-bold tracking-widest mb-2">AI ANALYSIS (Gemini)</div>
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-1.5 mb-3">
@@ -76,7 +76,7 @@ export default function AIAnalysisPanel({ project, relatedProjects }: Props) {
           <button key={peer.projectId}
             onClick={() => handlePairwise(peer)}
             disabled={isAnalyzing}
-            className="px-2 py-1 rounded text-[10px] bg-blue-900/30 border border-blue-700/50 text-blue-300 hover:bg-blue-900/50 transition-colors disabled:opacity-50"
+            className="px-2 py-1 rounded text-[10px] bg-accent-soft border border-accent-border/50 text-accent-text hover:bg-accent-soft transition-colors disabled:opacity-50"
           >
             vs {peer.projectId.replace('PRJ00', '')}
           </button>
@@ -104,7 +104,7 @@ export default function AIAnalysisPanel({ project, relatedProjects }: Props) {
       </div>
 
       {isAnalyzing && (
-        <div className="text-[11px] text-gray-400 animate-pulse">Analyzing with Gemini...</div>
+        <div className="text-[11px] text-ink-4 animate-pulse">Analyzing with Gemini...</div>
       )}
 
       {error && (
@@ -115,9 +115,9 @@ export default function AIAnalysisPanel({ project, relatedProjects }: Props) {
         <div className="space-y-2.5 animate-fadeIn">
           {analysis.themes.length > 0 && (
             <div>
-              <div className="text-[10px] text-blue-400 font-semibold mb-1">THEMES</div>
+              <div className="text-[10px] text-accent-text2 font-semibold mb-1">THEMES</div>
               {analysis.themes.map((t, i) => (
-                <div key={i} className="text-[11px] text-gray-300 pl-2 border-l-2 border-blue-700 mb-1">{t}</div>
+                <div key={i} className="text-[11px] text-ink-3 pl-2 border-l-2 border-accent-border mb-1">{t}</div>
               ))}
             </div>
           )}
@@ -126,7 +126,7 @@ export default function AIAnalysisPanel({ project, relatedProjects }: Props) {
             <div>
               <div className="text-[10px] text-green-400 font-semibold mb-1">SYNERGIES</div>
               {analysis.synergies.map((s, i) => (
-                <div key={i} className="text-[11px] text-gray-300 pl-2 border-l-2 border-green-700 mb-1">{s}</div>
+                <div key={i} className="text-[11px] text-ink-3 pl-2 border-l-2 border-green-700 mb-1">{s}</div>
               ))}
             </div>
           )}
@@ -135,7 +135,7 @@ export default function AIAnalysisPanel({ project, relatedProjects }: Props) {
             <div>
               <div className="text-[10px] text-red-400 font-semibold mb-1">RISKS</div>
               {analysis.risks.map((r, i) => (
-                <div key={i} className="text-[11px] text-gray-300 pl-2 border-l-2 border-red-700 mb-1">{r}</div>
+                <div key={i} className="text-[11px] text-ink-3 pl-2 border-l-2 border-red-700 mb-1">{r}</div>
               ))}
             </div>
           )}
@@ -144,12 +144,12 @@ export default function AIAnalysisPanel({ project, relatedProjects }: Props) {
             <div>
               <div className="text-[10px] text-yellow-400 font-semibold mb-1">RECOMMENDATIONS</div>
               {analysis.recommendations.map((r, i) => (
-                <div key={i} className="text-[11px] text-gray-300 pl-2 border-l-2 border-yellow-700 mb-1">{r}</div>
+                <div key={i} className="text-[11px] text-ink-3 pl-2 border-l-2 border-yellow-700 mb-1">{r}</div>
               ))}
             </div>
           )}
 
-          <div className="text-[10px] text-gray-500 text-right">
+          <div className="text-[10px] text-ink-muted text-right">
             AI Similarity: {Math.round(analysis.similarityScore * 100)}% · {analysis.modelUsed}
           </div>
         </div>

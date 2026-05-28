@@ -91,7 +91,7 @@ export default function MatrixView() {
 
   return (
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
-      <div className="text-[13px] text-gray-500 mb-4">
+      <div className="text-[13px] text-ink-muted mb-4">
         Impact matrix — color intensity = impact severity ({matrixProjects.length} projects shown, max 70)
       </div>
 
@@ -107,7 +107,7 @@ export default function MatrixView() {
                   transform: 'rotate(180deg)',
                   whiteSpace: 'nowrap',
                   maxWidth: 90,
-                  color: '#94a3b8',
+                  color: 'var(--ink-4)',
                   fontWeight: 600,
                 }}>
                   <span style={{ color: getDDSColor(p.dds) }}>{p.projectId.replace('PRJ00', '')}</span>
@@ -119,7 +119,7 @@ export default function MatrixView() {
           <tbody>
             {matrixProjects.map(pa => (
               <tr key={pa.projectId}>
-                <td className="pr-3 font-semibold text-gray-200 whitespace-nowrap text-right">
+                <td className="pr-3 font-semibold text-ink-2 whitespace-nowrap text-right">
                   <span className="text-[10px] font-mono mr-1.5" style={{ color: getDDSColor(pa.dds) }}>
                     {pa.projectId.replace('PRJ00', '')}
                   </span>
@@ -143,13 +143,13 @@ export default function MatrixView() {
                       style={{
                         width: 32, height: 32, minWidth: 32,
                         background: bg,
-                        border: '1px solid #0a0e1a',
+                        border: '1px solid var(--bg)',
                       }}
                     >
                       {sim > 0.15 && !isDiag && (
                         <span className="text-[9px] text-white/80 font-mono">{Math.round(sim * 100)}</span>
                       )}
-                      {isDiag && <span className="text-[9px] text-blue-400">--</span>}
+                      {isDiag && <span className="text-[9px] text-accent-text2">--</span>}
                     </td>
                   );
                 })}
@@ -161,11 +161,11 @@ export default function MatrixView() {
 
       {/* Tag cloud */}
       <div className="mt-8">
-        <div className="text-[13px] text-gray-500 mb-3">Shared tags across portfolio</div>
+        <div className="text-[13px] text-ink-muted mb-3">Shared tags across portfolio</div>
         <div className="flex flex-wrap gap-2">
           {tagCounts.slice(0, 30).map(([tag, count]) => (
             <span key={tag}
-              className="inline-block rounded-full border border-gray-800 text-gray-200"
+              className="inline-block rounded-full border border-line text-ink-2"
               style={{
                 background: `rgba(59,130,246,${Math.min(count / filtered.length, 0.8)})`,
                 padding: `4px ${10 + count}px`,

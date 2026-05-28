@@ -113,7 +113,7 @@ export default function GraphView() {
           return (
             <line key={i}
               x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-              stroke={isHighlighted ? '#60a5fa' : '#3b82f6'}
+              style={{ stroke: isHighlighted ? 'var(--accent-text-2)' : 'var(--accent-border)' }}
               strokeWidth={isHighlighted ? 2.5 : link.strength * 3}
               strokeOpacity={opacity}
               filter={isHighlighted ? 'url(#glow)' : undefined}
@@ -157,7 +157,7 @@ export default function GraphView() {
               </text>
 
               {/* Name below */}
-              <text textAnchor="middle" dy={r + 14} fontSize={9} fill="#94a3b8" fontWeight={500} style={{ pointerEvents: 'none' }}>
+              <text textAnchor="middle" dy={r + 14} fontSize={9} fontWeight={500} style={{ pointerEvents: 'none', fill: 'var(--ink-4)' }}>
                 {p.name.length > 20 ? p.name.slice(0, 18) + '...' : p.name}
               </text>
 
@@ -174,9 +174,9 @@ export default function GraphView() {
 
       {/* DDS Legend */}
       <div className="absolute bottom-4 left-4 flex flex-col gap-1.5">
-        <div className="text-[10px] text-gray-500 font-bold tracking-widest mb-1">DDS</div>
+        <div className="text-[10px] text-ink-muted font-bold tracking-widest mb-1">DDS</div>
         {Array.from(new Set(nodes.map(p => p.dds))).filter(Boolean).slice(0, 12).map(dds => (
-          <div key={dds} className="flex items-center gap-2 text-[11px] text-gray-400">
+          <div key={dds} className="flex items-center gap-2 text-[11px] text-ink-4">
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: getDDSColor(dds) }} />
             {dds}
           </div>
@@ -185,54 +185,54 @@ export default function GraphView() {
 
       {/* Selected project panel */}
       {selectedProject && (
-        <div className="absolute top-4 right-4 w-80 max-h-[calc(100%-2rem)] overflow-y-auto bg-gray-900 border border-gray-800 rounded-xl p-5 animate-fadeIn">
+        <div className="absolute top-4 right-4 w-80 max-h-[calc(100%-2rem)] overflow-y-auto bg-surface-1 border border-line rounded-xl p-5 animate-fadeIn">
           <div className="flex justify-between items-start mb-3">
             <div>
-              <div className="text-[10px] text-gray-500 font-mono mb-1">{selectedProject.projectId}</div>
-              <div className="text-sm font-bold text-gray-100 leading-snug">{selectedProject.name}</div>
+              <div className="text-[10px] text-ink-muted font-mono mb-1">{selectedProject.projectId}</div>
+              <div className="text-sm font-bold text-ink-1 leading-snug">{selectedProject.name}</div>
             </div>
-            <button onClick={() => setSelected(null)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">x</button>
+            <button onClick={() => setSelected(null)} className="text-ink-muted hover:text-ink-3 text-lg leading-none">x</button>
           </div>
 
           <div className="flex gap-1.5 mb-3 flex-wrap">
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold"
-              style={{ background: `${getGateColor(selectedProject.currentGate)}22`, color: getGateColor(selectedProject.currentGate) }}>
+              style={{ background: `${getGateColor(selectedProject.currentGate)}22`, color: `color-mix(in srgb, ${getGateColor(selectedProject.currentGate)} 70%, var(--ink-1))` }}>
               Gate {selectedProject.currentGate}
             </span>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold"
-              style={{ background: `${getDDSColor(selectedProject.dds)}22`, color: getDDSColor(selectedProject.dds) }}>
+              style={{ background: `${getDDSColor(selectedProject.dds)}22`, color: `color-mix(in srgb, ${getDDSColor(selectedProject.dds)} 70%, var(--ink-1))` }}>
               {selectedProject.dds}
             </span>
             {selectedProject.latestDecision && (
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold"
-                style={{ background: `${getDecisionColor(selectedProject.latestDecision)}22`, color: getDecisionColor(selectedProject.latestDecision) }}>
+                style={{ background: `${getDecisionColor(selectedProject.latestDecision)}22`, color: `color-mix(in srgb, ${getDecisionColor(selectedProject.latestDecision)} 70%, var(--ink-1))` }}>
                 {selectedProject.latestDecision}
               </span>
             )}
           </div>
 
           {selectedProject.description && (
-            <div className="text-xs text-gray-400 leading-relaxed mb-3">{selectedProject.description}</div>
+            <div className="text-xs text-ink-4 leading-relaxed mb-3">{selectedProject.description}</div>
           )}
 
           <div className="grid grid-cols-2 gap-2 mb-4">
-            <div className="bg-gray-800 rounded-lg p-2">
-              <div className="text-[10px] text-gray-500">Cost</div>
-              <div className="text-xs font-semibold text-gray-200">{selectedProject.costKEur ? `${selectedProject.costKEur}k€` : 'N/A'}</div>
+            <div className="bg-surface-2 rounded-lg p-2">
+              <div className="text-[10px] text-ink-muted">Cost</div>
+              <div className="text-xs font-semibold text-ink-2">{selectedProject.costKEur ? `${selectedProject.costKEur}k€` : 'N/A'}</div>
             </div>
-            <div className="bg-gray-800 rounded-lg p-2">
-              <div className="text-[10px] text-gray-500">Reviews</div>
-              <div className="text-xs font-semibold text-gray-200">{selectedProject.reviewCount}</div>
+            <div className="bg-surface-2 rounded-lg p-2">
+              <div className="text-[10px] text-ink-muted">Reviews</div>
+              <div className="text-xs font-semibold text-ink-2">{selectedProject.reviewCount}</div>
             </div>
           </div>
 
           {/* Tags */}
           {selectedProject.tags.length > 0 && (
             <div className="mb-4">
-              <div className="text-[10px] text-gray-500 font-semibold mb-1.5">TAGS</div>
+              <div className="text-[10px] text-ink-muted font-semibold mb-1.5">TAGS</div>
               <div className="flex flex-wrap gap-1">
                 {selectedProject.tags.map(t => (
-                  <span key={t} className="px-2 py-0.5 rounded text-[9px] text-gray-400 bg-gray-800 border border-gray-700">{t}</span>
+                  <span key={t} className="px-2 py-0.5 rounded text-[9px] text-ink-4 bg-surface-2 border border-line-strong">{t}</span>
                 ))}
               </div>
             </div>
@@ -241,18 +241,18 @@ export default function GraphView() {
           {/* Related projects */}
           {relatedProjects.length > 0 && (
             <div className="mb-4">
-              <div className="text-[10px] text-gray-500 font-semibold mb-2">RELATED ({relatedProjects.length})</div>
+              <div className="text-[10px] text-ink-muted font-semibold mb-2">RELATED ({relatedProjects.length})</div>
               {relatedProjects.slice(0, 8).map(({ project: rp, strength }) => rp && (
                 <div key={rp.projectId}
                   onClick={() => setSelected(rp.projectId)}
-                  className="bg-gray-800 rounded-lg p-2 mb-1.5 cursor-pointer flex items-center gap-2.5 hover:bg-gray-700/80 transition-colors"
+                  className="bg-surface-2 rounded-lg p-2 mb-1.5 cursor-pointer flex items-center gap-2.5 hover:bg-surface-3/80 transition-colors"
                 >
                   <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: getDDSColor(rp.dds) }} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-semibold text-gray-200 truncate">{rp.name}</div>
-                    <div className="text-[10px] text-gray-500">{rp.dds} · G{rp.currentGate}</div>
+                    <div className="text-[11px] font-semibold text-ink-2 truncate">{rp.name}</div>
+                    <div className="text-[10px] text-ink-muted">{rp.dds} · G{rp.currentGate}</div>
                   </div>
-                  <div className="text-[11px] font-bold text-blue-400">{Math.round(strength * 100)}%</div>
+                  <div className="text-[11px] font-bold text-accent-text2">{Math.round(strength * 100)}%</div>
                 </div>
               ))}
             </div>

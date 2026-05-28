@@ -152,14 +152,14 @@ export default function DriveView() {
   const isRunning = state?.pipeline.isRunning ?? false;
 
   return (
-    <div className="flex-1 overflow-auto bg-[#0a0e1a] animate-fadeIn">
+    <div className="flex-1 overflow-auto bg-bg animate-fadeIn">
       {/* Toast */}
       {toast && (
         <div
           className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg shadow-2xl border text-sm font-medium ${
             toast.kind === 'success' ? 'bg-green-900/90 border-green-700 text-green-100' :
             toast.kind === 'error'   ? 'bg-red-900/90 border-red-700 text-red-100' :
-                                       'bg-blue-900/90 border-blue-700 text-blue-100'
+                                       'bg-accent-soft border-accent-border text-accent-fg'
           }`}
         >
           {toast.msg}
@@ -201,51 +201,51 @@ function StatusHeader({
   const isRunning = state?.pipeline.isRunning ?? false;
 
   return (
-    <div className="sticky top-0 z-30 bg-[#0a0e1a]/95 backdrop-blur border-b border-gray-800">
+    <div className="sticky top-0 z-30 bg-bg/95 backdrop-blur border-b border-line">
       <div className="px-6 py-3 flex items-center gap-4 flex-wrap">
         {/* State */}
         <div className="flex items-center gap-2 min-w-[140px]">
           {isRunning ? (
             <>
               <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-text2 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent"></span>
               </span>
-              <span className="text-sm text-blue-300 font-semibold">Running</span>
+              <span className="text-sm text-accent-text font-semibold">Running</span>
             </>
           ) : (
             <>
-              <span className={`h-2.5 w-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-gray-600'}`}></span>
-              <span className="text-sm text-gray-300 font-semibold">Idle</span>
+              <span className={`h-2.5 w-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-surface-3'}`}></span>
+              <span className="text-sm text-ink-3 font-semibold">Idle</span>
             </>
           )}
         </div>
 
         {/* Counts */}
-        <div className="flex items-center gap-3 text-xs text-gray-400 flex-1 min-w-[280px]">
+        <div className="flex items-center gap-3 text-xs text-ink-4 flex-1 min-w-[280px]">
           <Stat label="projects" value={counts?.totalProjects} tone="default" />
-          <span className="text-gray-700">·</span>
+          <span className="text-ink-faint">·</span>
           <Stat label="with files"   value={counts?.withFiles}   tone="files" />
           <Stat label="with goals"   value={counts?.withGoals}   tone="goals" />
           <Stat label="with impacts" value={counts?.withImpacts} tone="impacts" />
         </div>
 
         {/* Schedule + LLM */}
-        <div className="flex items-center gap-4 text-xs text-gray-500">
+        <div className="flex items-center gap-4 text-xs text-ink-muted">
           {sched && (
             <span title={`Cron: ${sched.full.cron}`}>
-              <span className="text-gray-600">⏱</span>{' '}
-              <span className="text-gray-300">{describeCron(sched.full.cron)}</span>
+              <span className="text-ink-faint">⏱</span>{' '}
+              <span className="text-ink-3">{describeCron(sched.full.cron)}</span>
               {!sched.schedulerEnabled && <span className="ml-1 text-yellow-500">(off)</span>}
             </span>
           )}
           {llm && (
             <span title={`Today: ${llm.total}/${llm.cap} LLM calls`}>
-              <span className="text-gray-600">⚡</span>{' '}
-              <span className={`font-mono ${llm.remaining === 0 ? 'text-red-400' : llm.remaining < llm.cap * 0.2 ? 'text-yellow-400' : 'text-gray-300'}`}>
+              <span className="text-ink-faint">⚡</span>{' '}
+              <span className={`font-mono ${llm.remaining === 0 ? 'text-red-400' : llm.remaining < llm.cap * 0.2 ? 'text-yellow-400' : 'text-ink-3'}`}>
                 {llm.total}
               </span>
-              <span className="text-gray-600">/{llm.cap}</span>
+              <span className="text-ink-faint">/{llm.cap}</span>
             </span>
           )}
         </div>
@@ -263,15 +263,15 @@ function StatusHeader({
 
 function Stat({ label, value, tone }: { label: string; value: number | undefined; tone: 'default'|'files'|'goals'|'impacts' }) {
   const colorMap = {
-    default: 'text-gray-100',
-    files:   'text-blue-300',
+    default: 'text-ink-1',
+    files:   'text-accent-text',
     goals:   'text-green-300',
     impacts: 'text-purple-300',
   };
   return (
     <span>
       <span className={`font-mono font-semibold ${colorMap[tone]}`}>{value ?? '—'}</span>{' '}
-      <span className="text-gray-500">{label}</span>
+      <span className="text-ink-muted">{label}</span>
     </span>
   );
 }
@@ -321,18 +321,18 @@ function CollapsibleCard({ title, subtitle, defaultOpen = false, children }: {
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl">
+    <div className="bg-surface-1 border border-line rounded-xl">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full px-5 py-3 flex items-center justify-between text-left hover:bg-gray-800/30 transition-colors rounded-t-xl"
+        className="w-full px-5 py-3 flex items-center justify-between text-left hover:bg-surface-2/30 transition-colors rounded-t-xl"
       >
         <div>
-          <div className="text-sm font-semibold text-gray-200">{title}</div>
-          {subtitle && <div className="text-[11px] text-gray-500 mt-0.5">{subtitle}</div>}
+          <div className="text-sm font-semibold text-ink-2">{title}</div>
+          {subtitle && <div className="text-[11px] text-ink-muted mt-0.5">{subtitle}</div>}
         </div>
-        <span className="text-gray-500 text-sm">{open ? '▾' : '▸'}</span>
+        <span className="text-ink-muted text-sm">{open ? '▾' : '▸'}</span>
       </button>
-      {open && <div className="px-5 pb-5 pt-1 border-t border-gray-800">{children}</div>}
+      {open && <div className="px-5 pb-5 pt-1 border-t border-line">{children}</div>}
     </div>
   );
 }
@@ -382,9 +382,9 @@ function WatchedRoots({ state }: { state: DrivePanelState | null }) {
     <div className="pt-3">
       <div className="space-y-2 mb-3">
         {roots.length === 0 ? (
-          <div className="text-xs text-gray-500 italic">No watched roots yet. Add one below.</div>
+          <div className="text-xs text-ink-muted italic">No watched roots yet. Add one below.</div>
         ) : roots.map(r => (
-          <div key={r.id} className="bg-gray-950 border border-gray-800 rounded-lg p-3 flex items-center gap-3">
+          <div key={r.id} className="bg-surface-deep border border-line rounded-lg p-3 flex items-center gap-3">
             <input
               type="checkbox" checked={r.enabled}
               onChange={e => handleToggle(r.id, e.target.checked)}
@@ -392,25 +392,25 @@ function WatchedRoots({ state }: { state: DrivePanelState | null }) {
               title={r.enabled ? 'Disable' : 'Enable'}
             />
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-gray-200 font-medium truncate">
-                {r.label || <span className="text-gray-500 italic">(no label)</span>}
+              <div className="text-sm text-ink-2 font-medium truncate">
+                {r.label || <span className="text-ink-muted italic">(no label)</span>}
               </div>
               <a href={r.url} target="_blank" rel="noopener noreferrer"
-                 className="text-[11px] text-blue-400 hover:underline font-mono truncate block max-w-full">
+                 className="text-[11px] text-accent-text2 hover:underline font-mono truncate block max-w-full">
                 {r.url}
               </a>
-              <div className="text-[11px] text-gray-500 mt-0.5">
-                Added projects: <span className="text-gray-400 font-mono">{r.addedCount}</span>
+              <div className="text-[11px] text-ink-muted mt-0.5">
+                Added projects: <span className="text-ink-4 font-mono">{r.addedCount}</span>
                 {' · '}Last: {r.lastRunAt ? (
                   <>
-                    <span className="text-gray-400">{new Date(r.lastRunAt).toLocaleString()}</span>
+                    <span className="text-ink-4">{new Date(r.lastRunAt).toLocaleString()}</span>
                     {r.lastRunStatus && (
                       <span className={`ml-1 ${r.lastRunStatus === 'success' ? 'text-green-400' : 'text-red-400'}`}>
                         ({r.lastRunStatus})
                       </span>
                     )}
                   </>
-                ) : <span className="text-gray-600">never</span>}
+                ) : <span className="text-ink-faint">never</span>}
               </div>
             </div>
             <button
@@ -426,12 +426,12 @@ function WatchedRoots({ state }: { state: DrivePanelState | null }) {
         <input
           type="text" placeholder="Label (optional)"
           value={newLabel} onChange={e => setNewLabel(e.target.value)}
-          className="w-48 bg-gray-950 border border-gray-800 text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+          className="w-48 bg-surface-deep border border-line text-ink-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent-border"
         />
         <input
           type="text" placeholder="https://drive.google.com/drive/folders/..."
           value={newUrl} onChange={e => setNewUrl(e.target.value)}
-          className="flex-1 min-w-[280px] bg-gray-950 border border-gray-800 text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+          className="flex-1 min-w-[280px] bg-surface-deep border border-line text-ink-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent-border"
         />
         <button
           onClick={handleAdd} disabled={!newUrl.trim() || adding}
@@ -494,14 +494,14 @@ function AddSource() {
         {p.projectId}
       </span>
     )).concat(items.length > 6
-      ? [<span key="more" className="text-gray-500">+{items.length - 6} more</span>]
+      ? [<span key="more" className="text-ink-muted">+{items.length - 6} more</span>]
       : []);
 
   return (
     <div className="pt-3">
-      <p className="text-xs text-gray-500 mb-3">
+      <p className="text-xs text-ink-muted mb-3">
         Paste a Drive folder URL — the engine scans subfolders for any name containing{' '}
-        <code className="text-gray-300">PRJ</code>. Existing projects get the link attached;
+        <code className="text-ink-3">PRJ</code>. Existing projects get the link attached;
         unknown PRJ codes are created as new entries.
       </p>
       <div className="flex gap-2">
@@ -511,7 +511,7 @@ function AddSource() {
           value={url}
           onChange={e => setUrl(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') submit(); }}
-          className="flex-1 bg-gray-950 border border-gray-800 text-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+          className="flex-1 bg-surface-deep border border-line text-ink-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent-border"
         />
         <button
           onClick={submit}
@@ -528,24 +528,24 @@ function AddSource() {
 
       {state === 'ok' && result && (
         <div className="mt-3 space-y-2 text-xs">
-          <div className="text-gray-500">
+          <div className="text-ink-muted">
             Scanned {result.scannedFolders} folder{result.scannedFolders !== 1 ? 's' : ''} ·
             {' '}{result.linked.length} linked, {result.created.length} created
             {result.unmatched.length > 0 && `, ${result.unmatched.length} unmatched (saved as new)`}
           </div>
           {result.created.length === 0 && result.linked.length === 0 && (
-            <div className="text-gray-400 italic">No folders matching the PRJ pattern were found.</div>
+            <div className="text-ink-4 italic">No folders matching the PRJ pattern were found.</div>
           )}
           {result.linked.length > 0 && (
             <div>
-              <span className="text-blue-400 font-semibold">✓ Linked to {result.linked.length} existing project{result.linked.length > 1 ? 's' : ''}:</span>{' '}
-              <span className="text-gray-300">{renderList(result.linked)}</span>
+              <span className="text-accent-text2 font-semibold">✓ Linked to {result.linked.length} existing project{result.linked.length > 1 ? 's' : ''}:</span>{' '}
+              <span className="text-ink-3">{renderList(result.linked)}</span>
             </div>
           )}
           {result.created.length > 0 && (
             <div>
               <span className="text-green-400 font-semibold">+ Created {result.created.length} new project{result.created.length > 1 ? 's' : ''}:</span>{' '}
-              <span className="text-gray-300">{renderList(result.created)}</span>
+              <span className="text-ink-3">{renderList(result.created)}</span>
             </div>
           )}
           {result.unmatched.length > 0 && (
@@ -553,16 +553,16 @@ function AddSource() {
               <summary className="cursor-pointer text-yellow-400 hover:text-yellow-300">
                 ⚠ {result.unmatched.length} folder{result.unmatched.length > 1 ? 's' : ''} didn&apos;t match any existing project ID
               </summary>
-              <ul className="mt-1 ml-4 space-y-0.5 text-gray-400">
+              <ul className="mt-1 ml-4 space-y-0.5 text-ink-4">
                 {result.unmatched.slice(0, 20).map(u => (
                   <li key={u.extracted} className="font-mono text-[11px]">
                     <span className="text-yellow-500">{u.extracted}</span>
-                    <span className="text-gray-600"> ← </span>
+                    <span className="text-ink-faint"> ← </span>
                     <span>{u.folderName}</span>
                   </li>
                 ))}
                 {result.unmatched.length > 20 && (
-                  <li className="text-gray-500">…and {result.unmatched.length - 20} more</li>
+                  <li className="text-ink-muted">…and {result.unmatched.length - 20} more</li>
                 )}
               </ul>
             </details>
@@ -609,7 +609,7 @@ function ScheduleEditor({ state }: { state: DrivePanelState | null }) {
 
   return (
     <div className="pt-3">
-      <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
+      <div className="flex items-center gap-2 mb-3 text-xs text-ink-muted">
         <label className="flex items-center gap-1.5 cursor-pointer">
           <input type="checkbox" checked={advanced} onChange={e => setAdvanced(e.target.checked)} className="cursor-pointer" />
           Advanced (raw cron)
@@ -623,13 +623,13 @@ function ScheduleEditor({ state }: { state: DrivePanelState | null }) {
           <input
             type="text" value={cron} onChange={e => setCron(e.target.value)}
             placeholder="*/10 * * * *"
-            className="flex-1 min-w-[200px] bg-gray-950 border border-gray-800 text-gray-200 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
+            className="flex-1 min-w-[200px] bg-surface-deep border border-line text-ink-2 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-accent-border"
           />
         ) : (
           <select
             value={SCHEDULE_PRESETS.some(p => p.cron === cron) ? cron : ''}
             onChange={e => setCron(e.target.value)}
-            className="flex-1 min-w-[240px] bg-gray-950 border border-gray-800 text-gray-200 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500 cursor-pointer"
+            className="flex-1 min-w-[240px] bg-surface-deep border border-line text-ink-2 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-accent-border cursor-pointer"
           >
             {!SCHEDULE_PRESETS.some(p => p.cron === cron) && cron && (
               <option value="" disabled>Custom: {cron} — switch to Advanced</option>
@@ -640,13 +640,13 @@ function ScheduleEditor({ state }: { state: DrivePanelState | null }) {
         <button
           onClick={() => save(cron)}
           disabled={saving || !cron.trim() || cron === state?.schedule.full.cron}
-          className="px-4 py-1.5 rounded bg-blue-700 text-white text-sm font-semibold hover:bg-blue-600 disabled:opacity-40"
+          className="px-4 py-1.5 rounded bg-accent-hover text-white text-sm font-semibold hover:bg-accent disabled:opacity-40"
         >{saving ? 'Saving…' : 'Apply'}</button>
         {state?.schedule.full.source !== 'default' && (
           <button
             onClick={() => save(null)}
             disabled={saving}
-            className="px-3 py-1.5 rounded bg-gray-800 text-gray-300 text-xs font-medium border border-gray-700 hover:bg-gray-700 disabled:opacity-40"
+            className="px-3 py-1.5 rounded bg-surface-2 text-ink-3 text-xs font-medium border border-line-strong hover:bg-surface-3 disabled:opacity-40"
             title="Clear DB override and use env/default"
           >Reset</button>
         )}
@@ -685,14 +685,14 @@ function ExcelUpload() {
 
   return (
     <div className="pt-3">
-      <p className="text-xs text-gray-500 mb-3">
-        Upload the <code className="text-gray-300">Gating Pre-review – CDIO internal committee</code> workbook to populate base project metadata. Replaces all existing projects.
+      <p className="text-xs text-ink-muted mb-3">
+        Upload the <code className="text-ink-3">Gating Pre-review – CDIO internal committee</code> workbook to populate base project metadata. Replaces all existing projects.
       </p>
-      <label className={`inline-block px-5 py-2 rounded-lg bg-blue-700 text-white text-sm font-semibold ${busy ? 'opacity-50' : 'hover:bg-blue-600 cursor-pointer'}`}>
+      <label className={`inline-block px-5 py-2 rounded-lg bg-accent-hover text-white text-sm font-semibold ${busy ? 'opacity-50' : 'hover:bg-accent cursor-pointer'}`}>
         {busy ? 'Uploading…' : 'Upload Excel'}
         <input type="file" accept=".xlsx,.xls" className="hidden" disabled={busy} onChange={onChange} />
       </label>
-      {msg && <div className="mt-2 text-xs text-gray-400">{msg}</div>}
+      {msg && <div className="mt-2 text-xs text-ink-4">{msg}</div>}
     </div>
   );
 }
@@ -701,9 +701,9 @@ function ExcelUpload() {
 
 function RecentRunsTable({ runs }: { runs: DrivePanelState['recentRuns'] }) {
   return (
-    <div className="pt-3 overflow-hidden rounded-lg border border-gray-800">
+    <div className="pt-3 overflow-hidden rounded-lg border border-line">
       <table className="w-full text-[11px]">
-        <thead className="bg-gray-900 text-gray-500 uppercase">
+        <thead className="bg-surface-1 text-ink-muted uppercase">
           <tr>
             <th className="px-2 py-1.5 text-left font-medium">Started</th>
             <th className="px-2 py-1.5 text-left font-medium">Trig</th>
@@ -714,22 +714,22 @@ function RecentRunsTable({ runs }: { runs: DrivePanelState['recentRuns'] }) {
             <th className="px-2 py-1.5 text-right font-medium">Errors</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-800">
+        <tbody className="divide-y divide-line">
           {runs.map(r => (
-            <tr key={r.id} className="hover:bg-gray-800/30">
-              <td className="px-2 py-1.5 text-gray-300 font-mono">{new Date(r.startedAt).toLocaleString()}</td>
-              <td className="px-2 py-1.5 text-gray-400">{r.trigger}</td>
+            <tr key={r.id} className="hover:bg-surface-2/30">
+              <td className="px-2 py-1.5 text-ink-3 font-mono">{new Date(r.startedAt).toLocaleString()}</td>
+              <td className="px-2 py-1.5 text-ink-4">{r.trigger}</td>
               <td className="px-2 py-1.5">
                 <span className={
                   r.status === 'success' ? 'text-green-400' :
                   r.status === 'error'   ? 'text-red-400' :
-                  r.status === 'partial' ? 'text-yellow-400' : 'text-blue-400'
+                  r.status === 'partial' ? 'text-yellow-400' : 'text-accent-text2'
                 }>{r.status}</span>
               </td>
-              <td className="px-2 py-1.5 text-right font-mono text-gray-300">{r.newProjects}</td>
-              <td className="px-2 py-1.5 text-right font-mono text-gray-300">{r.goalsAdded}</td>
-              <td className="px-2 py-1.5 text-right font-mono text-gray-300">{r.impactsAdded}</td>
-              <td className="px-2 py-1.5 text-right font-mono text-gray-300">{r.errorCount}</td>
+              <td className="px-2 py-1.5 text-right font-mono text-ink-3">{r.newProjects}</td>
+              <td className="px-2 py-1.5 text-right font-mono text-ink-3">{r.goalsAdded}</td>
+              <td className="px-2 py-1.5 text-right font-mono text-ink-3">{r.impactsAdded}</td>
+              <td className="px-2 py-1.5 text-right font-mono text-ink-3">{r.errorCount}</td>
             </tr>
           ))}
         </tbody>
@@ -923,25 +923,25 @@ function ProjectExplorer({
   };
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl">
-      <div className="px-5 py-3 flex items-center gap-3 flex-wrap border-b border-gray-800">
-        <div className="text-sm font-semibold text-gray-200">Projects</div>
-        <div className="text-[11px] text-gray-500">{visible.length} / {rows?.length ?? 0}</div>
+    <div className="bg-surface-1 border border-line rounded-xl">
+      <div className="px-5 py-3 flex items-center gap-3 flex-wrap border-b border-line">
+        <div className="text-sm font-semibold text-ink-2">Projects</div>
+        <div className="text-[11px] text-ink-muted">{visible.length} / {rows?.length ?? 0}</div>
         {/* DEBUG: temporary indicator so we know SSE is delivering the syncAll payload. */}
         {syncAll && (
           <div className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-            syncing ? 'bg-blue-900/40 text-blue-300' :
+            syncing ? 'bg-accent-soft text-accent-text' :
             syncAll.status === 'done' && syncAll.totalProjects > 0 ? 'bg-green-900/40 text-green-300' :
-            'bg-gray-800 text-gray-500'
+            'bg-surface-2 text-ink-muted'
           }`}>
             sync:{syncAll.status} · {Object.keys(syncAll.perProject).length} entries · {syncAll.doneFiles}/{syncAll.totalFiles} files
           </div>
         )}
         {syncing && syncAll && (
-          <div className="flex items-center gap-2 text-[11px] text-blue-300">
+          <div className="flex items-center gap-2 text-[11px] text-accent-text">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-text2 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
             </span>
             <span className="font-mono">
               {syncAll.doneProjects}/{syncAll.totalProjects} projects ·
@@ -953,7 +953,7 @@ function ProjectExplorer({
         {hasActiveFilter && (
           <button
             onClick={clearFilters}
-            className="px-2.5 py-1 rounded bg-gray-800 text-gray-300 text-xs hover:bg-gray-700"
+            className="px-2.5 py-1 rounded bg-surface-2 text-ink-3 text-xs hover:bg-surface-3"
             title="Clear all column filters"
           >Clear filters</button>
         )}
@@ -961,7 +961,7 @@ function ProjectExplorer({
           <button
             onClick={startSyncAll}
             disabled={isRunning}
-            className="px-3 py-1 rounded bg-blue-700 text-white text-xs font-semibold hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-3 py-1 rounded bg-accent-hover text-white text-xs font-semibold hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed"
             title="Count and download all linked Drive folders"
           >▶ Sync all</button>
         ) : (
@@ -974,13 +974,13 @@ function ProjectExplorer({
         )}
         <button
           onClick={load} disabled={loading}
-          className="px-2.5 py-1 rounded bg-gray-800 text-gray-300 text-xs hover:bg-gray-700 disabled:opacity-40"
+          className="px-2.5 py-1 rounded bg-surface-2 text-ink-3 text-xs hover:bg-surface-3 disabled:opacity-40"
           title="Reload"
         >↻</button>
       </div>
 
       {error && (
-        <div className="px-5 py-3 text-xs text-red-400 border-b border-gray-800">
+        <div className="px-5 py-3 text-xs text-red-400 border-b border-line">
           {error}{' — '}
           {error.includes('404') || error.includes('Cannot find') ? 'restart the dev server to register the new endpoints.' : ''}
         </div>
@@ -988,7 +988,7 @@ function ProjectExplorer({
 
       <div className="overflow-auto max-h-[55vh]">
         <table className="w-full text-[12px]">
-          <thead className="bg-gray-950 sticky top-0 z-10">
+          <thead className="bg-surface-deep sticky top-0 z-10">
             <tr>
               <ColumnHeader label="ID"      col="projectId"       sort={sort} onSort={toggleSort}
                 filter={<FilterInput value={filters.projectId} onChange={v => updateFilter('projectId', v)} placeholder="PRJ…" />} />
@@ -1015,15 +1015,15 @@ function ProjectExplorer({
               <ColumnHeader label="Local"   col="localPath"       sort={sort} onSort={toggleSort}
                 filter={<FilterSelect value={filters.local} onChange={v => updateFilter('local', v as ColumnFilters['local'])}
                   options={[{ value: 'any', label: 'Any' }, { value: 'yes', label: 'Downloaded' }, { value: 'no', label: 'No' }]} />} />
-              <th className="px-2 py-1.5 text-right align-top text-[10px] uppercase text-gray-500 font-medium">Actions</th>
+              <th className="px-2 py-1.5 text-right align-top text-[10px] uppercase text-ink-muted font-medium">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800/60">
+          <tbody className="divide-y divide-line/60">
             {loading && rows === null && (
-              <tr><td colSpan={10} className="px-5 py-6 text-center text-gray-500 text-xs">Carregando…</td></tr>
+              <tr><td colSpan={10} className="px-5 py-6 text-center text-ink-muted text-xs">Carregando…</td></tr>
             )}
             {!loading && visible.length === 0 && rows !== null && (
-              <tr><td colSpan={10} className="px-5 py-6 text-center text-gray-500 text-xs italic">No matches.</td></tr>
+              <tr><td colSpan={10} className="px-5 py-6 text-center text-ink-muted text-xs italic">No matches.</td></tr>
             )}
             {visible.map(r => {
               const ps = syncAll?.perProject[r.projectId];
@@ -1057,24 +1057,24 @@ function ProjectExplorer({
                   else rowRefs.current.delete(r.projectId);
                 }}
                 style={rowStyle}
-                className={`hover:bg-gray-800/30 ${isActive ? 'shadow-[inset_3px_0_0_0_rgb(59_130_246)]' : ''}`}
+                className={`hover:bg-surface-2/30 ${isActive ? 'shadow-[inset_3px_0_0_0_rgb(59_130_246)]' : ''}`}
               >
-                <td className="px-2 py-1.5 font-mono text-gray-200">
+                <td className="px-2 py-1.5 font-mono text-ink-2">
                   <span className="inline-flex items-center gap-1.5">
                     <StatusDot status={psStatus} />
                     {r.projectId}
                   </span>
                 </td>
-                <td className="px-2 py-1.5 text-gray-300 max-w-xs truncate" title={r.name}>{r.name || '—'}</td>
-                <td className="px-2 py-1.5 text-gray-400">{r.dds || '—'}</td>
-                <td className="px-2 py-1.5 text-center text-gray-400">{r.gate || '—'}</td>
+                <td className="px-2 py-1.5 text-ink-3 max-w-xs truncate" title={r.name}>{r.name || '—'}</td>
+                <td className="px-2 py-1.5 text-ink-4">{r.dds || '—'}</td>
+                <td className="px-2 py-1.5 text-center text-ink-4">{r.gate || '—'}</td>
                 <td className="px-2 py-1.5 text-right font-mono">
                   {ps && ps.status !== 'pending' ? (
-                    <span className={ps.status === 'error' ? 'text-red-400' : 'text-blue-300'}>
-                      {ps.doneFiles}{ps.totalFiles > 0 && <span className="text-gray-500">/{ps.totalFiles}</span>}
+                    <span className={ps.status === 'error' ? 'text-red-400' : 'text-accent-text'}>
+                      {ps.doneFiles}{ps.totalFiles > 0 && <span className="text-ink-muted">/{ps.totalFiles}</span>}
                     </span>
                   ) : (
-                    <span className={r.filesDownloaded > 0 ? 'text-blue-300' : 'text-gray-600'}>
+                    <span className={r.filesDownloaded > 0 ? 'text-accent-text' : 'text-ink-faint'}>
                       {r.filesDownloaded}
                     </span>
                   )}
@@ -1082,10 +1082,10 @@ function ProjectExplorer({
                 <td className="px-2 py-1.5 text-center">
                   {r.hasGoals
                     ? <span className="text-green-400" title="Goals extracted">✓</span>
-                    : <span className="text-gray-700">—</span>}
+                    : <span className="text-ink-faint">—</span>}
                 </td>
                 <td className="px-2 py-1.5 text-right font-mono">
-                  <span className={r.impactCount > 0 ? 'text-purple-300' : 'text-gray-600'}>
+                  <span className={r.impactCount > 0 ? 'text-purple-300' : 'text-ink-faint'}>
                     {r.impactCount}
                   </span>
                 </td>
@@ -1097,22 +1097,22 @@ function ProjectExplorer({
                       className={`inline-flex items-center justify-center w-6 h-6 rounded transition-colors ${
                         copiedId === r.projectId
                           ? 'text-green-400'
-                          : 'text-blue-400 hover:bg-gray-800 hover:text-blue-300'
+                          : 'text-accent-text2 hover:bg-surface-2 hover:text-accent-text'
                       }`}
                     >
                       {copiedId === r.projectId ? '✓' : '⧉'}
                     </button>
                   ) : (
-                    <span className="text-gray-700">—</span>
+                    <span className="text-ink-faint">—</span>
                   )}
                 </td>
                 <td className="px-2 py-1.5 font-mono text-[10px] max-w-[260px]">
                   {r.localPath ? (
-                    <span className="text-gray-400 truncate inline-block max-w-full align-bottom" title={r.localPath}>
+                    <span className="text-ink-4 truncate inline-block max-w-full align-bottom" title={r.localPath}>
                       {r.localPath}
                     </span>
                   ) : (
-                    <span className="text-gray-700">—</span>
+                    <span className="text-ink-faint">—</span>
                   )}
                 </td>
                 <td className="px-2 py-1.5 text-right">
@@ -1120,7 +1120,7 @@ function ProjectExplorer({
                     onClick={() => onResync(r.projectId)}
                     disabled={isRunning}
                     title="Re-sync this project's Drive links"
-                    className="px-2 py-0.5 rounded text-[11px] bg-gray-800 text-gray-300 hover:bg-blue-700 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-2 py-0.5 rounded text-[11px] bg-surface-2 text-ink-3 hover:bg-accent-hover hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     ↻ Sync
                   </button>
@@ -1158,10 +1158,10 @@ function ColumnHeader({
         <button
           type="button"
           onClick={() => onSort(col)}
-          className={`flex items-center gap-1 ${justify} text-[10px] uppercase font-medium text-gray-500 hover:text-gray-200 cursor-pointer select-none`}
+          className={`flex items-center gap-1 ${justify} text-[10px] uppercase font-medium text-ink-muted hover:text-ink-2 cursor-pointer select-none`}
         >
           <span>{label}</span>
-          <span className="text-gray-400 w-2 inline-block">
+          <span className="text-ink-4 w-2 inline-block">
             {isActive ? (sort.dir === 'asc' ? '↑' : '↓') : ''}
           </span>
         </button>
@@ -1183,7 +1183,7 @@ function FilterInput({ value, onChange, placeholder }: {
       placeholder={placeholder}
       onChange={e => onChange(e.target.value)}
       onClick={e => e.stopPropagation()}
-      className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded px-1.5 py-0.5 text-[11px] font-normal normal-case focus:outline-none focus:border-blue-500 placeholder:text-gray-600"
+      className="w-full bg-surface-1 border border-line-strong text-ink-2 rounded px-1.5 py-0.5 text-[11px] font-normal normal-case focus:outline-none focus:border-accent-border placeholder:text-ink-faint"
     />
   );
 }
@@ -1191,10 +1191,10 @@ function FilterInput({ value, onChange, placeholder }: {
 function StatusDot({ status }: { status: ProjectSyncStatus | undefined }) {
   if (!status || status === 'pending') return null;
   const cls = status === 'counting'    ? 'bg-yellow-400 animate-pulse ring-yellow-300/40' :
-              status === 'downloading' ? 'bg-blue-400 animate-pulse ring-blue-300/40' :
+              status === 'downloading' ? 'bg-accent-text2 animate-pulse ring-accent-border/40' :
               status === 'done'        ? 'bg-green-500 ring-green-400/30' :
               status === 'error'       ? 'bg-red-500 ring-red-400/40' :
-                                         'bg-gray-500 ring-gray-400/30';
+                                         'bg-ink-muted ring-ink-4/30';
   const tip = status === 'counting' ? 'Counting files in Drive…' :
               status === 'downloading' ? 'Downloading…' :
               status === 'done' ? 'Done' :
@@ -1213,7 +1213,7 @@ function FilterSelect({ value, onChange, options }: {
       value={value}
       onChange={e => onChange(e.target.value)}
       onClick={e => e.stopPropagation()}
-      className="w-full bg-gray-900 border border-gray-700 text-gray-200 rounded px-1 py-0.5 text-[11px] font-normal normal-case focus:outline-none focus:border-blue-500 cursor-pointer"
+      className="w-full bg-surface-1 border border-line-strong text-ink-2 rounded px-1 py-0.5 text-[11px] font-normal normal-case focus:outline-none focus:border-accent-border cursor-pointer"
     >
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>

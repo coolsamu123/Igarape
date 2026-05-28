@@ -192,6 +192,32 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_deep_dives_project ON impact_deep_dives(project_id);
+
+    CREATE TABLE IF NOT EXISTS project_goals (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id            TEXT NOT NULL,
+      project_name          TEXT NOT NULL,
+      region                TEXT DEFAULT '',
+      gate                  TEXT DEFAULT '',
+      month_folder          TEXT DEFAULT '',
+      digital_technologies  TEXT DEFAULT '',
+      change_management     TEXT DEFAULT '',
+      security_impacts      TEXT DEFAULT '',
+      regional_impacts      TEXT DEFAULT '',
+      ia_embedded           TEXT DEFAULT '',
+      gio_sl_dds_impacts    TEXT DEFAULT '',
+      dds_gio_workload      TEXT DEFAULT '',
+      business_apps_cis     TEXT DEFAULT '',
+      raw_gemini_response   TEXT DEFAULT '',
+      source_files          TEXT DEFAULT '[]',
+      analyzed_at           TEXT DEFAULT NULL,
+      status                TEXT DEFAULT 'pending',
+      error_message         TEXT DEFAULT ''
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_goals_project_id ON project_goals(project_id);
+    CREATE INDEX IF NOT EXISTS idx_goals_region ON project_goals(region);
+    CREATE INDEX IF NOT EXISTS idx_goals_status ON project_goals(status);
   `);
 
   try {
@@ -209,6 +235,25 @@ function initSchema(db: Database.Database) {
   } catch {
     // Ignore if column already exists
   }
+
+  // project_goals structured-fields migrations (idempotent — column may already exist)
+  const addGoalCol = (col: string, decl: string) => {
+    try { db.exec(`ALTER TABLE project_goals ADD COLUMN ${col} ${decl}`); }
+    catch { /* column already exists */ }
+  };
+  addGoalCol('summary_one_line',      "TEXT DEFAULT ''");
+  addGoalCol('dds_entities_touched',  "TEXT DEFAULT '[]'");
+  addGoalCol('gio_services_touched',  "TEXT DEFAULT '[]'");
+  addGoalCol('tech_tags',             "TEXT DEFAULT '[]'");
+  addGoalCol('vendors',               "TEXT DEFAULT '[]'");
+  addGoalCol('data_classifications',  "TEXT DEFAULT '[]'");
+  addGoalCol('mentioned_projects',    "TEXT DEFAULT '[]'");
+  addGoalCol('prompt_version',        'INTEGER DEFAULT 0');
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_goals_tech_tags ON project_goals(tech_tags);
+    CREATE INDEX IF NOT EXISTS idx_goals_prompt_version ON project_goals(prompt_version);
+  `);
 }
 
 export function closeDb() {

@@ -31,8 +31,8 @@ export default function DetailView() {
             <div
               key={p.projectId}
               onClick={() => setSelected(isSelected ? null : p.projectId)}
-              className={`bg-gray-900 border rounded-xl p-5 cursor-pointer transition-all hover:-translate-y-0.5
-                ${isSelected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-gray-800 hover:border-gray-600'}`}
+              className={`bg-surface-1 border rounded-xl p-5 cursor-pointer transition-all hover:-translate-y-0.5
+                ${isSelected ? 'border-accent-border ring-1 ring-accent-border/30' : 'border-line hover:border-line-strong'}`}
               style={{ borderTopColor: color, borderTopWidth: '2px' }}
             >
               {/* Header */}
@@ -45,7 +45,7 @@ export default function DetailView() {
                     <span className="inline-block px-3 py-1 rounded-full text-[11px] font-bold border"
                       style={{
                         background: `${getGateColor(p.currentGate)}18`,
-                        color: getGateColor(p.currentGate),
+                        color: `color-mix(in srgb, ${getGateColor(p.currentGate)} 70%, var(--ink-1))`,
                         borderColor: `${getGateColor(p.currentGate)}40`,
                         boxShadow: `0 0 8px ${getGateColor(p.currentGate)}25`,
                       }}>
@@ -54,7 +54,7 @@ export default function DetailView() {
                   )}
                   {isUseful(p.dds) && (
                     <span className="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold"
-                      style={{ background: `${color}22`, color }}>
+                      style={{ background: `${color}22`, color: `color-mix(in srgb, ${color} 70%, var(--ink-1))` }}>
                       {p.dds}
                     </span>
                   )}
@@ -63,14 +63,14 @@ export default function DetailView() {
 
               {/* Name */}
               {p.name && p.name !== p.projectId && (
-                <div className="text-sm font-bold text-gray-100 mb-2 leading-snug line-clamp-2">
+                <div className="text-sm font-bold text-ink-1 mb-2 leading-snug line-clamp-2">
                   {p.name}
                 </div>
               )}
 
               {/* Description */}
               {p.description && (
-                <div className="text-xs text-gray-300 leading-relaxed mb-3 line-clamp-3">
+                <div className="text-xs text-ink-3 leading-relaxed mb-3 line-clamp-3">
                   {p.description}
                 </div>
               )}
@@ -79,7 +79,7 @@ export default function DetailView() {
               {isUseful(p.latestDecision) && (
                 <div className="mb-3 flex gap-2 flex-wrap">
                   <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold"
-                    style={{ background: `${getDecisionColor(p.latestDecision)}22`, color: getDecisionColor(p.latestDecision) }}>
+                    style={{ background: `${getDecisionColor(p.latestDecision)}22`, color: `color-mix(in srgb, ${getDecisionColor(p.latestDecision)} 70%, var(--ink-1))` }}>
                     {p.latestDecision}
                   </span>
                 </div>
@@ -87,7 +87,7 @@ export default function DetailView() {
 
               {/* Cost */}
               {p.costKEur && (
-                <div className="text-[11px] text-gray-400">
+                <div className="text-[11px] text-ink-4">
                   <span>{p.costKEur}k€</span>
                 </div>
               )}
@@ -96,7 +96,7 @@ export default function DetailView() {
               {p.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-3">
                   {p.tags.slice(0, 5).map(t => (
-                    <span key={t} className="inline-block px-2 py-0.5 rounded text-[9px] text-gray-400 bg-gray-800 border border-gray-700">
+                    <span key={t} className="inline-block px-2 py-0.5 rounded text-[9px] text-ink-4 bg-surface-2 border border-line-strong">
                       {t}
                     </span>
                   ))}
@@ -109,14 +109,14 @@ export default function DetailView() {
                   {p.linkFolder && (
                     <a href={p.linkFolder} target="_blank" rel="noopener noreferrer"
                       onClick={e => e.stopPropagation()}
-                      className="text-[10px] text-blue-400 hover:text-blue-300 underline">
+                      className="text-[10px] text-accent-text2 hover:text-accent-text underline">
                       Folder
                     </a>
                   )}
                   {p.linkPositions && (
                     <a href={p.linkPositions} target="_blank" rel="noopener noreferrer"
                       onClick={e => e.stopPropagation()}
-                      className="text-[10px] text-blue-400 hover:text-blue-300 underline">
+                      className="text-[10px] text-accent-text2 hover:text-accent-text underline">
                       CIOO Position
                     </a>
                   )}
@@ -125,23 +125,23 @@ export default function DetailView() {
 
               {/* Expanded detail when selected */}
               {isSelected && (
-                <div className="mt-4 pt-4 border-t border-gray-700 space-y-3 animate-fadeIn">
+                <div className="mt-4 pt-4 border-t border-line-strong space-y-3 animate-fadeIn">
                   {p.remarks && (
                     <div>
-                      <div className="text-[10px] text-gray-500 font-semibold mb-1">REMARKS</div>
-                      <div className="text-xs text-gray-300 leading-relaxed">{p.remarks}</div>
+                      <div className="text-[10px] text-ink-muted font-semibold mb-1">REMARKS</div>
+                      <div className="text-xs text-ink-3 leading-relaxed">{p.remarks}</div>
                     </div>
                   )}
 
                   {p.lastReviewDate && (
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-gray-800 rounded-lg p-2">
-                        <div className="text-[10px] text-gray-500">Last Review</div>
-                        <div className="text-xs font-semibold text-gray-200">{p.lastReviewDate}</div>
+                      <div className="bg-surface-2 rounded-lg p-2">
+                        <div className="text-[10px] text-ink-muted">Last Review</div>
+                        <div className="text-xs font-semibold text-ink-2">{p.lastReviewDate}</div>
                       </div>
-                      <div className="bg-gray-800 rounded-lg p-2">
-                        <div className="text-[10px] text-gray-500">Cost</div>
-                        <div className="text-xs font-semibold text-gray-200">{p.costKEur ? `${p.costKEur}k€` : 'N/A'}</div>
+                      <div className="bg-surface-2 rounded-lg p-2">
+                        <div className="text-[10px] text-ink-muted">Cost</div>
+                        <div className="text-xs font-semibold text-ink-2">{p.costKEur ? `${p.costKEur}k€` : 'N/A'}</div>
                       </div>
                     </div>
                   )}
@@ -161,61 +161,61 @@ export default function DetailView() {
                       if (!hasAnyInsight) return null;
                       return (
                         <div className="space-y-3 mt-4">
-                          <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wider border-b border-gray-700 pb-1">AI Extracted Insights</div>
+                          <div className="text-[11px] font-bold text-accent-text2 uppercase tracking-wider border-b border-line-strong pb-1">AI Extracted Insights</div>
                           
                           {isUseful(p.digitalTechnologies) && (
                             <div>
-                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DIGITAL TECHNOLOGIES</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.digitalTechnologies}</div>
+                              <div className="text-[10px] text-ink-muted font-semibold mb-0.5">DIGITAL TECHNOLOGIES</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.digitalTechnologies}</div>
                             </div>
                           )}
                           
                           {isUseful(p.businessAppsCis) && (
                             <div>
-                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">BUSINESS APPS & CIs</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.businessAppsCis}</div>
+                              <div className="text-[10px] text-ink-muted font-semibold mb-0.5">BUSINESS APPS & CIs</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.businessAppsCis}</div>
                             </div>
                           )}
                           
                           {isUseful(p.gioSlDdsImpacts) && (
                             <div>
-                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">GIO SL / DDS IMPACTS</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.gioSlDdsImpacts}</div>
+                              <div className="text-[10px] text-ink-muted font-semibold mb-0.5">GIO SL / DDS IMPACTS</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.gioSlDdsImpacts}</div>
                             </div>
                           )}
                           
                           {isUseful(p.ddsGioWorkload) && (
                             <div>
-                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">DDS / GIO WORKLOAD</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.ddsGioWorkload}</div>
+                              <div className="text-[10px] text-ink-muted font-semibold mb-0.5">DDS / GIO WORKLOAD</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.ddsGioWorkload}</div>
                             </div>
                           )}
                           
                           {isUseful(p.changeManagement) && (
                             <div>
-                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">CHANGE MANAGEMENT</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.changeManagement}</div>
+                              <div className="text-[10px] text-ink-muted font-semibold mb-0.5">CHANGE MANAGEMENT</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.changeManagement}</div>
                             </div>
                           )}
                           
                           {isUseful(p.regionalImpacts) && (
                             <div>
-                              <div className="text-[10px] text-gray-500 font-semibold mb-0.5">REGIONAL IMPACTS</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.regionalImpacts}</div>
+                              <div className="text-[10px] text-ink-muted font-semibold mb-0.5">REGIONAL IMPACTS</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.regionalImpacts}</div>
                             </div>
                           )}
                           
                           {isUseful(p.securityImpacts) && (
                             <div>
                               <div className="text-[10px] text-red-500 font-semibold mb-0.5">SECURITY IMPACTS</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.securityImpacts}</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.securityImpacts}</div>
                             </div>
                           )}
                           
                           {isUseful(p.iaEmbedded) && (
                             <div>
                               <div className="text-[10px] text-purple-500 font-semibold mb-0.5">AI EMBEDDED</div>
-                              <div className="text-xs text-gray-300 leading-relaxed">{p.iaEmbedded}</div>
+                              <div className="text-xs text-ink-3 leading-relaxed">{p.iaEmbedded}</div>
                             </div>
                           )}
                         </div>
@@ -226,10 +226,10 @@ export default function DetailView() {
                   {/* Review history */}
                   {p.history && p.history.length > 1 && (
                     <div>
-                      <div className="text-[10px] text-gray-500 font-semibold mb-1">REVIEW HISTORY ({p.history.length})</div>
+                      <div className="text-[10px] text-ink-muted font-semibold mb-1">REVIEW HISTORY ({p.history.length})</div>
                       <div className="space-y-1 max-h-32 overflow-y-auto">
                         {p.history.slice(0, 8).map((h, i) => (
-                          <div key={i} className="flex justify-between text-[10px] text-gray-400 bg-gray-800/50 rounded px-2 py-1">
+                          <div key={i} className="flex justify-between text-[10px] text-ink-4 bg-surface-2/50 rounded px-2 py-1">
                             <span>{h.reviewDate || '—'}</span>
                             <span style={{ color: getGateColor(h.gate) }}>
                               {isUseful(h.gate) ? `G${h.gate}` : '—'}

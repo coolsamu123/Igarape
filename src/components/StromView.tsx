@@ -107,7 +107,7 @@ function colorizeSql(sql: string) {
   return sql.split('\n').map((line, i) => {
     // Comment lines
     if (line.trim().startsWith('/*') || line.trim().startsWith('*') || line.trim().startsWith('--')) {
-      return <div key={i} className="text-gray-500 italic">{line}</div>;
+      return <div key={i} className="text-ink-muted italic">{line}</div>;
     }
     
     // Highlight keywords
@@ -158,11 +158,11 @@ export default function StromView() {
   };
 
   return (
-    <div className="flex-1 overflow-auto bg-[#0a0e1a] p-8 text-gray-200">
+    <div className="flex-1 overflow-auto bg-bg p-8 text-ink-2">
       <div className="max-w-5xl mx-auto">
         <div className="mb-12 text-center">
           <h1 className="text-3xl font-bold text-white mb-4">Strom - Pipeline Architecture</h1>
-          <p className="text-gray-400">
+          <p className="text-ink-4">
             A comprehensive overview of how data flows from external systems, gets analyzed by AI, and produces portfolio insights.
           </p>
         </div>
@@ -174,26 +174,26 @@ export default function StromView() {
           <div className="flex w-full gap-8 justify-center z-10 relative">
             
             {/* Google Drive Source */}
-            <div className="w-1/3 bg-gray-800/50 border border-blue-500/30 rounded-xl p-5 shadow-lg relative">
-              <div className="flex items-center gap-3 mb-3 border-b border-gray-700 pb-3">
+            <div className="w-1/3 bg-surface-2/50 border border-accent-border/30 rounded-xl p-5 shadow-lg relative">
+              <div className="flex items-center gap-3 mb-3 border-b border-line-strong pb-3">
                 <span className="text-2xl">☁️</span>
-                <h3 className="font-semibold text-blue-400 text-lg">Google Drive</h3>
+                <h3 className="font-semibold text-accent-text2 text-lg">Google Drive</h3>
               </div>
-              <div className="space-y-2 text-sm text-gray-300">
+              <div className="space-y-2 text-sm text-ink-3">
                 <p><strong>From where:</strong> Specified G-Drive folders and shared drives.</p>
                 <p><strong>Content:</strong> Gate presentations, meeting minutes, architecture diagrams (.docx, .pdf, .xlsx, .txt).</p>
               </div>
               {/* Arrow pointing down */}
-              <div className="absolute -bottom-6 left-1/2 -ml-px w-0.5 h-6 bg-blue-500/50" />
+              <div className="absolute -bottom-6 left-1/2 -ml-px w-0.5 h-6 bg-accent/50" />
             </div>
 
             {/* ServiceNow Source */}
-            <div className="w-1/3 bg-gray-800/50 border border-purple-500/30 rounded-xl p-5 shadow-lg relative">
-              <div className="flex items-center gap-3 mb-3 border-b border-gray-700 pb-3">
+            <div className="w-1/3 bg-surface-2/50 border border-purple-500/30 rounded-xl p-5 shadow-lg relative">
+              <div className="flex items-center gap-3 mb-3 border-b border-line-strong pb-3">
                 <span className="text-2xl">📊</span>
                 <h3 className="font-semibold text-purple-400 text-lg">ServiceNow</h3>
               </div>
-              <div className="space-y-2 text-sm text-gray-300">
+              <div className="space-y-2 text-sm text-ink-3">
                 <p><strong>From where:</strong> ServiceNow portfolio exports (CSV format).</p>
                 <p><strong>Content:</strong> Core project metadata, budgets, gate status, ownership, and basic descriptions.</p>
               </div>
@@ -202,42 +202,42 @@ export default function StromView() {
           </div>
 
           {/* Flow Step 2: Drive Sync */}
-          <div className="w-2/3 bg-[#0d1117] border border-blue-500/50 rounded-xl p-6 shadow-xl z-10 relative">
-            <div className="absolute top-0 left-1/4 w-0.5 h-6 bg-blue-500/50 -mt-6" />
+          <div className="w-2/3 bg-surface border border-accent-border/50 rounded-xl p-6 shadow-xl z-10 relative">
+            <div className="absolute top-0 left-1/4 w-0.5 h-6 bg-accent/50 -mt-6" />
             
             <div className="flex items-center gap-3 mb-4">
-              <span className="text-xl bg-blue-900/50 p-2 rounded-lg">🔄</span>
-              <h2 className="text-xl font-bold text-blue-300">1. Drive Sync Engine</h2>
+              <span className="text-xl bg-accent-soft p-2 rounded-lg">🔄</span>
+              <h2 className="text-xl font-bold text-accent-text">1. Drive Sync Engine</h2>
             </div>
             
             <div className="grid grid-cols-2 gap-6 text-sm">
-              <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
-                <h4 className="font-semibold text-gray-200 mb-2">How it works</h4>
-                <ul className="list-disc pl-4 space-y-1 text-gray-400 mb-3">
+              <div className="bg-surface-2/50 p-4 rounded-lg border border-line-strong">
+                <h4 className="font-semibold text-ink-2 mb-2">How it works</h4>
+                <ul className="list-disc pl-4 space-y-1 text-ink-4 mb-3">
                   <li>Authenticates via Google Service Account.</li>
                   <li>Recursively scans folders matching Project IDs (e.g., PRJ001234).</li>
                   <li>Downloads supported file formats locally to the filesystem.</li>
-                  <li>Updates the SQLite <code className="text-blue-300 bg-blue-900/30 px-1 rounded">documents_cache</code> table.</li>
+                  <li>Updates the SQLite <code className="text-accent-text bg-accent-soft px-1 rounded">documents_cache</code> table.</li>
                 </ul>
               </div>
-              <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
-                <h4 className="font-semibold text-gray-200 mb-2">Data Output</h4>
-                <p className="text-gray-400 mb-2">Local File System (<code className="text-pink-300">data/drive/...</code>)</p>
-                <p className="text-gray-400 mb-3">SQLite Database (<code className="text-pink-300">cioo.db</code>)</p>
+              <div className="bg-surface-2/50 p-4 rounded-lg border border-line-strong">
+                <h4 className="font-semibold text-ink-2 mb-2">Data Output</h4>
+                <p className="text-ink-4 mb-2">Local File System (<code className="text-pink-300">data/drive/...</code>)</p>
+                <p className="text-ink-4 mb-3">SQLite Database (<code className="text-pink-300">cioo.db</code>)</p>
               </div>
             </div>
 
             <div className="flex justify-center mt-4">
               <button 
                 onClick={() => setActiveQuery(activeQuery === 'drive' ? null : 'drive')}
-                className="px-4 py-1.5 text-xs font-semibold rounded bg-blue-900/40 hover:bg-blue-800/60 border border-blue-500/50 text-blue-300 transition-colors"
+                className="px-4 py-1.5 text-xs font-semibold rounded bg-accent-soft hover:bg-accent-soft border border-accent-border/50 text-accent-text transition-colors"
               >
                 {activeQuery === 'drive' ? 'Hide Queries' : 'Check Full Queries'}
               </button>
             </div>
 
             {activeQuery === 'drive' && (
-              <div className="mt-4 animate-fade-in bg-[#0a0e1a] p-4 rounded-lg border border-gray-700">
+              <div className="mt-4 animate-fade-in bg-bg p-4 rounded-lg border border-line-strong">
                 <div className="font-mono text-xs overflow-x-auto whitespace-pre-wrap">
                   {colorizeSql(QUERIES.drive)}
                 </div>
@@ -252,7 +252,7 @@ export default function StromView() {
           <div className="absolute top-[410px] right-1/4 w-[25%] h-0.5 bg-gradient-to-r from-green-500/50 to-purple-500/50 z-0" />
 
           {/* Flow Step 3: Goals Extractor */}
-          <div className="w-2/3 bg-[#0d1117] border border-green-500/50 rounded-xl p-6 shadow-xl mt-4 z-10 relative">
+          <div className="w-2/3 bg-surface border border-green-500/50 rounded-xl p-6 shadow-xl mt-4 z-10 relative">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-3">
                 <span className="text-xl bg-green-900/50 p-2 rounded-lg">🧠</span>
@@ -260,7 +260,7 @@ export default function StromView() {
               </div>
               <button 
                 onClick={() => setIsEditingGoals(!isEditingGoals)}
-                className="px-3 py-1 text-xs font-medium rounded-md bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-300 transition-colors"
+                className="px-3 py-1 text-xs font-medium rounded-md bg-surface-2 hover:bg-surface-3 border border-line-strong text-ink-3 transition-colors"
               >
                 {isEditingGoals ? 'Cancel Edit' : 'Edit Prompt'}
               </button>
@@ -268,30 +268,30 @@ export default function StromView() {
             
             {!isEditingGoals ? (
               <div className="grid grid-cols-2 gap-6 text-sm">
-                <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
-                  <h4 className="font-semibold text-gray-200 mb-2">How it works</h4>
-                  <ul className="list-disc pl-4 space-y-1 text-gray-400 mb-3">
+                <div className="bg-surface-2/50 p-4 rounded-lg border border-line-strong">
+                  <h4 className="font-semibold text-ink-2 mb-2">How it works</h4>
+                  <ul className="list-disc pl-4 space-y-1 text-ink-4 mb-3">
                     <li>Parses text from downloaded PDFs, DOCX, XLSX files using specialized extractors.</li>
                     <li>Combines file content with ServiceNow CSV metadata.</li>
                     <li>Prompts <strong>Gemini 2.0 Flash</strong> to extract deep insights.</li>
                   </ul>
                 </div>
-                <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
-                  <h4 className="font-semibold text-gray-200 mb-2">Data Output</h4>
-                  <p className="text-gray-400 mb-2">Structured AI insights stored in SQLite.</p>
-                  <p className="text-gray-400 mb-3">Table: <code className="text-pink-300 bg-pink-900/30 px-1 rounded">project_goals</code></p>
+                <div className="bg-surface-2/50 p-4 rounded-lg border border-line-strong">
+                  <h4 className="font-semibold text-ink-2 mb-2">Data Output</h4>
+                  <p className="text-ink-4 mb-2">Structured AI insights stored in SQLite.</p>
+                  <p className="text-ink-4 mb-3">Table: <code className="text-pink-300 bg-pink-900/30 px-1 rounded">project_goals</code></p>
                 </div>
               </div>
             ) : (
               <div className="mt-4 transition-all duration-300">
-                <div className="mb-2 text-xs text-gray-400 flex justify-between">
+                <div className="mb-2 text-xs text-ink-4 flex justify-between">
                   <span>System Prompt (Gemini 2.5 Pro)</span>
                   <span className="text-green-400">Variables: {'{{PROJECT_INFO}}'}, {'{{DOCUMENT_TEXT}}'}</span>
                 </div>
                 <textarea
                   value={prompts.goalsPrompt}
                   onChange={(e) => setPrompts({ ...prompts, goalsPrompt: e.target.value })}
-                  className="w-full h-80 bg-[#0a0e1a] text-green-300 font-mono text-xs p-4 rounded-lg border border-green-500/30 focus:border-green-500 focus:outline-none resize-y"
+                  className="w-full h-80 bg-bg text-green-300 font-mono text-xs p-4 rounded-lg border border-green-500/30 focus:border-green-500 focus:outline-none resize-y"
                   spellCheck={false}
                 />
                 <div className="flex justify-end mt-3">
@@ -317,7 +317,7 @@ export default function StromView() {
                   </button>
                 </div>
                 {activeQuery === 'goals' && (
-                  <div className="mt-4 animate-fade-in bg-[#0a0e1a] p-4 rounded-lg border border-gray-700">
+                  <div className="mt-4 animate-fade-in bg-bg p-4 rounded-lg border border-line-strong">
                     <div className="font-mono text-xs overflow-x-auto whitespace-pre-wrap">
                       {colorizeSql(QUERIES.goals)}
                     </div>
@@ -330,7 +330,7 @@ export default function StromView() {
           </div>
 
           {/* Flow Step 4: Impact Analysis */}
-          <div className="w-2/3 bg-[#0d1117] border border-orange-500/50 rounded-xl p-6 shadow-xl mt-4 z-10 relative mb-12">
+          <div className="w-2/3 bg-surface border border-orange-500/50 rounded-xl p-6 shadow-xl mt-4 z-10 relative mb-12">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div className="flex items-center gap-3">
                 <span className="text-xl bg-orange-900/50 p-2 rounded-lg">🕸️</span>
@@ -338,7 +338,7 @@ export default function StromView() {
               </div>
               <button 
                 onClick={() => setIsEditingImpact(!isEditingImpact)}
-                className="px-3 py-1 text-xs font-medium rounded-md bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-300 transition-colors"
+                className="px-3 py-1 text-xs font-medium rounded-md bg-surface-2 hover:bg-surface-3 border border-line-strong text-ink-3 transition-colors"
               >
                 {isEditingImpact ? 'Cancel Edit' : 'Edit Prompt'}
               </button>
@@ -346,30 +346,30 @@ export default function StromView() {
             
             {!isEditingImpact ? (
               <div className="grid grid-cols-2 gap-6 text-sm">
-                <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
-                  <h4 className="font-semibold text-gray-200 mb-2">How it works</h4>
-                  <ul className="list-disc pl-4 space-y-1 text-gray-400 mb-3">
+                <div className="bg-surface-2/50 p-4 rounded-lg border border-line-strong">
+                  <h4 className="font-semibold text-ink-2 mb-2">How it works</h4>
+                  <ul className="list-disc pl-4 space-y-1 text-ink-4 mb-3">
                     <li>Reads the enriched <code className="text-pink-300">project_goals</code> and <code className="text-pink-300">projects</code> tables.</li>
                     <li>Groups projects by Division (DDS) and cross-DDS top spenders into batches.</li>
                     <li>Prompts <strong>Gemini 2.0 Flash</strong> to identify overlapping technologies, shared infrastructure, and timeline blockers.</li>
                   </ul>
                 </div>
-                <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
-                  <h4 className="font-semibold text-gray-200 mb-2">Data Output</h4>
-                  <p className="text-gray-400 mb-2">Directional graph edges representing dependencies.</p>
-                  <p className="text-gray-400 mb-3">Table: <code className="text-pink-300 bg-pink-900/30 px-1 rounded">projects_impact</code></p>
+                <div className="bg-surface-2/50 p-4 rounded-lg border border-line-strong">
+                  <h4 className="font-semibold text-ink-2 mb-2">Data Output</h4>
+                  <p className="text-ink-4 mb-2">Directional graph edges representing dependencies.</p>
+                  <p className="text-ink-4 mb-3">Table: <code className="text-pink-300 bg-pink-900/30 px-1 rounded">projects_impact</code></p>
                 </div>
               </div>
             ) : (
               <div className="mt-4 transition-all duration-300">
-                <div className="mb-2 text-xs text-gray-400 flex justify-between">
+                <div className="mb-2 text-xs text-ink-4 flex justify-between">
                   <span>System Prompt (Gemini 2.0 Flash)</span>
                   <span className="text-orange-400">Variables: {'{{PROJECTS_LIST}}'}</span>
                 </div>
                 <textarea
                   value={prompts.impactPrompt}
                   onChange={(e) => setPrompts({ ...prompts, impactPrompt: e.target.value })}
-                  className="w-full h-80 bg-[#0a0e1a] text-orange-300 font-mono text-xs p-4 rounded-lg border border-orange-500/30 focus:border-orange-500 focus:outline-none resize-y"
+                  className="w-full h-80 bg-bg text-orange-300 font-mono text-xs p-4 rounded-lg border border-orange-500/30 focus:border-orange-500 focus:outline-none resize-y"
                   spellCheck={false}
                 />
                 <div className="flex justify-end mt-3">
@@ -395,7 +395,7 @@ export default function StromView() {
                   </button>
                 </div>
                 {activeQuery === 'impact' && (
-                  <div className="mt-4 animate-fade-in bg-[#0a0e1a] p-4 rounded-lg border border-gray-700">
+                  <div className="mt-4 animate-fade-in bg-bg p-4 rounded-lg border border-line-strong">
                     <div className="font-mono text-xs overflow-x-auto whitespace-pre-wrap">
                       {colorizeSql(QUERIES.impact)}
                     </div>

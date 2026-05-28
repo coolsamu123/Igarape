@@ -51,14 +51,14 @@ export default function Home() {
   // Views that don't need project data (Drive Sync, Goals, ArchFlow) render normally.
   if (projects.length === 0 && !VIEWS_OK_WHEN_EMPTY.includes(view)) {
     return (
-      <div className="min-h-screen flex flex-col bg-[#0a0e1a]">
+      <div className="min-h-screen flex flex-col bg-bg">
         <Header />
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-ink-4">
           <LoadingState label={isLoading ? 'Carregando…' : 'Sem dados ainda'} />
           {!isLoading && !isPublic && (
             <button
               onClick={() => setView('drive')}
-              className="text-xs text-blue-400 hover:underline -mt-12"
+              className="text-xs text-accent-text2 hover:underline -mt-12"
             >
               Ir para Drive Sync para popular o portfólio
             </button>
@@ -71,7 +71,7 @@ export default function Home() {
   const showToolbar = TOOLBAR_VIEWS.includes(view);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0a0e1a] overflow-hidden" style={{ height: '100vh' }}>
+    <div className="min-h-screen flex flex-col bg-bg overflow-hidden" style={{ height: '100vh' }}>
       <Header />
       <div className={showToolbar ? 'contents' : 'hidden'}>
         <Toolbar />

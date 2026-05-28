@@ -125,21 +125,22 @@ const edgeTypes = { clickable: ClickableEdge };
 
 function CenterNode({ data }: { data: { project: CenterProject } }) {
   const { project } = data;
-  const ddsColor = project.dds ? getDDSColor(project.dds) : '#475569';
+  const ddsColor = project.dds ? getDDSColor(project.dds) : '#64748b';
   return (
     <div
-      className="rounded-2xl px-5 py-4 border-2 shadow-2xl relative"
+      className="rounded-2xl px-5 py-4 border shadow-lg relative"
       style={{
         minWidth: 260,
-        background: 'radial-gradient(circle at 30% 20%, #1e293b 0%, #0f172a 100%)',
-        borderColor: ddsColor,
-        boxShadow: `0 0 32px ${ddsColor}55, 0 0 80px ${ddsColor}22`,
+        background: 'radial-gradient(circle at 30% 20%, var(--surface-2) 0%, var(--surface-1) 100%)',
+        borderColor: 'var(--border-strong)',
+        borderTopColor: ddsColor,
+        borderTopWidth: '2px',
       }}
     >
       {/* Single source handle in the center; react-flow draws to it from any angle */}
       <Handle type="source" position={Position.Right} style={{ opacity: 0, pointerEvents: 'none', top: '50%' }} />
-      <div className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">{project.projectId}</div>
-      <div className="text-base font-bold text-gray-50 leading-snug mb-2">{project.name}</div>
+      <div className="text-[10px] uppercase tracking-widest text-ink-muted mb-1">{project.projectId}</div>
+      <div className="text-base font-bold text-ink-1 leading-snug mb-2">{project.name}</div>
       <div className="flex gap-2 flex-wrap">
         {project.dds && (
           <span className="px-2 py-0.5 rounded text-[10px] font-bold text-white" style={{ background: ddsColor }}>
@@ -147,7 +148,7 @@ function CenterNode({ data }: { data: { project: CenterProject } }) {
           </span>
         )}
         {project.currentGate && (
-          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-900/60 text-blue-200 border border-blue-800">
+          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-accent-soft text-accent-fg border border-accent-border">
             Gate {project.currentGate}
           </span>
         )}
@@ -170,16 +171,16 @@ function PseudoCircleNode({ data }: { data: { label: string; sublabel?: string; 
         background: `radial-gradient(circle at 30% 25%, ${data.color}33 0%, ${data.color}11 60%, transparent 100%)`,
         borderColor: data.color,
         boxShadow: `0 0 18px ${data.glow}`,
-        color: '#f1f5f9',
+        color: 'var(--ink-1)',
       }}
     >
       <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: 'none', top: '50%' }} />
       <div className="text-[11px] leading-tight px-1.5">{data.label}</div>
       {data.sublabel && (
-        <div className="text-[9px] text-gray-400 mt-0.5">{data.sublabel}</div>
+        <div className="text-[9px] text-ink-4 mt-0.5">{data.sublabel}</div>
       )}
       <div
-        className="absolute -top-1 -right-1 w-3 h-3 rounded-full border border-gray-900"
+        className="absolute -top-1 -right-1 w-3 h-3 rounded-full border border-line-faint"
         style={{ background: SEVERITY_COLOR[data.severity] || '#6b7280' }}
         title={`severity: ${data.severity}`}
       />
@@ -194,19 +195,19 @@ function ProjectSatelliteNode({ data }: { data: { label: string; sublabel: strin
       className="rounded-lg px-3 py-2 border-2 hover:scale-105 transition-transform cursor-pointer relative"
       style={{
         minWidth: 160, maxWidth: 200,
-        background: '#0f172a',
+        background: 'var(--surface-1)',
         borderColor: data.ddsColor,
         boxShadow: `0 0 14px ${data.ddsColor}44`,
       }}
     >
       <Handle type="target" position={Position.Left} style={{ opacity: 0, pointerEvents: 'none', top: '50%' }} />
-      <div className="text-[11px] font-semibold text-gray-100 truncate" title={data.label}>{data.label}</div>
+      <div className="text-[11px] font-semibold text-ink-1 truncate" title={data.label}>{data.label}</div>
       <div className="flex items-center gap-1.5 mt-1">
         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded text-white" style={{ background: data.ddsColor }}>
           {data.sublabel}
         </span>
         <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
-          style={{ background: `${SEVERITY_COLOR[data.severity] || '#6b7280'}33`, color: SEVERITY_COLOR[data.severity] || '#6b7280' }}>
+          style={{ background: `${SEVERITY_COLOR[data.severity] || '#6b7280'}33`, color: `color-mix(in srgb, ${SEVERITY_COLOR[data.severity] || '#6b7280'} 70%, var(--ink-1))` }}>
           {data.severity}
         </span>
       </div>
@@ -259,7 +260,7 @@ function radialLayout<T>(
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export default function ProjectUniverseView() {
-  const { focusedProjectId, closeUniverse, openUniverse } = useProjectContext();
+  const { focusedProjectId, closeUniverse, openUniverse, theme } = useProjectContext();
   const [data, setData] = useState<UniverseResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -424,7 +425,7 @@ export default function ProjectUniverseView() {
     );
     for (const item of projLayout) {
       const edge = item.payload;
-      const ddsColor = edge.otherProjectDds ? getDDSColor(edge.otherProjectDds) : '#475569';
+      const ddsColor = edge.otherProjectDds ? getDDSColor(edge.otherProjectDds) : '#64748b';
       out.nodes.push({
         id: item.id,
         type: 'satellite',
@@ -497,7 +498,7 @@ export default function ProjectUniverseView() {
 
   if (!focusedProjectId) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-500">
+      <div className="flex-1 flex items-center justify-center text-ink-muted">
         Nenhum projeto selecionado.
       </div>
     );
@@ -508,20 +509,20 @@ export default function ProjectUniverseView() {
   if (!data) return null;
 
   return (
-    <div className="flex-1 flex flex-col bg-[#06080f] animate-fadeIn">
+    <div className="flex-1 flex flex-col bg-surface-deep animate-fadeIn">
       {/* Top bar */}
-      <div className="px-5 py-3 border-b border-gray-800/80 flex items-center gap-4 bg-[#0a0e1a]">
+      <div className="px-5 py-3 border-b border-line flex items-center gap-4 bg-bg">
         <button
           onClick={closeUniverse}
-          className="px-3 py-1.5 rounded-md border border-gray-700 text-gray-300 text-[12px] hover:bg-gray-800 transition-colors"
+          className="px-3 py-1.5 rounded-md border border-line-strong text-ink-3 text-[12px] hover:bg-surface-2 transition-colors"
         >
           ← Voltar
         </button>
         <div className="flex-1">
-          <div className="text-[10px] uppercase tracking-widest text-gray-500">Project Universe</div>
-          <div className="text-sm font-bold text-gray-100 truncate">{data.project.name}</div>
+          <div className="text-[10px] uppercase tracking-widest text-ink-muted">Project Universe</div>
+          <div className="text-sm font-bold text-ink-1 truncate">{data.project.name}</div>
         </div>
-        <div className="flex gap-3 text-xs text-gray-400">
+        <div className="flex gap-3 text-xs text-ink-4">
           <Stat label="GIO Services" value={data.stats.gioCount} color={GIO_COLOR} />
           <Stat label="DDS Entities" value={data.stats.ddsCount} color="#06b6d4" />
           <Stat label="Projects" value={data.stats.projectCount} color="#22c55e" />
@@ -548,16 +549,16 @@ export default function ProjectUniverseView() {
             nodesConnectable={false}
             elementsSelectable={false}
           >
-            <Background gap={32} size={1} color="#1e293b" />
-            <Controls className="!bg-gray-900 !border-gray-700" showInteractive={false} />
+            <Background gap={32} size={1} color={theme === 'light' ? '#cbd5e1' : '#1e293b'} />
+            <Controls className="!bg-surface-1 !border-line-strong" showInteractive={false} />
           </ReactFlow>
 
           {data.stats.totalImpacts === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="bg-gray-900/80 border border-gray-800 rounded-xl px-6 py-4 text-center">
+              <div className="bg-surface-1/80 border border-line rounded-xl px-6 py-4 text-center">
                 <div className="text-2xl mb-2">🛰️</div>
-                <div className="text-sm text-gray-300 font-semibold">Sem impactos analisados ainda</div>
-                <div className="text-xs text-gray-500 mt-1">Rode o Impact Analysis pra popular o universo deste projeto.</div>
+                <div className="text-sm text-ink-3 font-semibold">Sem impactos analisados ainda</div>
+                <div className="text-xs text-ink-muted mt-1">Rode o Impact Analysis pra popular o universo deste projeto.</div>
               </div>
             </div>
           )}
@@ -566,25 +567,25 @@ export default function ProjectUniverseView() {
         {/* Drag handle (resize) */}
         <div
           onMouseDown={() => setIsResizing(true)}
-          className={`w-1.5 cursor-col-resize bg-gray-800/40 hover:bg-blue-500/60 transition-colors shrink-0 ${isResizing ? 'bg-blue-500/80' : ''}`}
+          className={`w-1.5 cursor-col-resize bg-surface-2/40 hover:bg-accent/60 transition-colors shrink-0 ${isResizing ? 'bg-accent/80' : ''}`}
           title="Drag to resize"
         />
 
         {/* Side panel */}
         <div
-          className="border-l border-gray-800/80 bg-[#0a0e1a] flex flex-col shrink-0"
+          className="border-l border-line bg-bg flex flex-col shrink-0"
           style={{ width: panelWidth }}
         >
           {!selectedDetails && (
-            <div className="p-5 text-xs text-gray-500 leading-relaxed overflow-y-auto">
-              <div className="text-sm font-semibold text-gray-300 mb-2">How to read</div>
+            <div className="p-5 text-xs text-ink-muted leading-relaxed overflow-y-auto">
+              <div className="text-sm font-semibold text-ink-3 mb-2">How to read</div>
               <ul className="space-y-2 list-disc pl-4">
                 <li><span className="text-purple-400 font-semibold">Purple</span> — GIO Service Lines impacted</li>
                 <li><span className="text-cyan-400 font-semibold">DDS colors</span> — entities / divisions impacted</li>
                 <li><span className="text-emerald-400 font-semibold">Right side</span> — related projects</li>
                 <li>Line thickness = number of relations; color = severity.</li>
               </ul>
-              <div className="mt-4 text-[11px] text-gray-500">
+              <div className="mt-4 text-[11px] text-ink-muted">
                 Click any line or node to see the AI explanation.
               </div>
             </div>
@@ -593,14 +594,14 @@ export default function ProjectUniverseView() {
           {selectedDetails && (
             <>
               {/* Header (always visible) */}
-              <div className="px-5 pt-4 pb-3 border-b border-gray-800/70 animate-fadeIn">
-                <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1">
+              <div className="px-5 pt-4 pb-3 border-b border-line animate-fadeIn">
+                <div className="text-[10px] uppercase tracking-wider text-ink-muted mb-1">
                   {selectedDetails.category === 'gio' ? 'GIO Service' : selectedDetails.category === 'dds' ? 'DDS Entity' : 'Project'}
                 </div>
-                <div className="text-base font-bold text-gray-100 leading-snug" style={{ color: selectedDetails.color }}>
+                <div className="text-base font-bold text-ink-1 leading-snug" style={{ color: selectedDetails.color }}>
                   {selectedDetails.title}
                 </div>
-                <div className="text-xs text-gray-500 mt-1">{selectedDetails.subtitle}</div>
+                <div className="text-xs text-ink-muted mt-1">{selectedDetails.subtitle}</div>
                 <div className="mt-3 flex gap-2 flex-wrap">
                   <Badge label={selectedDetails.severity} bg={`${SEVERITY_COLOR[selectedDetails.severity]}33`} fg={SEVERITY_COLOR[selectedDetails.severity]} />
                   {selectedDetails.impactTypes.map(t => (
@@ -610,7 +611,7 @@ export default function ProjectUniverseView() {
               </div>
 
               {/* Tabs */}
-              <div className="flex border-b border-gray-800/70 shrink-0">
+              <div className="flex border-b border-line shrink-0">
                 <TabButton active={activeTab === 'reason'} onClick={() => setActiveTab('reason')}>Reason</TabButton>
                 {focusedProjectId && (selectedDetails.category === 'gio' || selectedDetails.category === 'dds') && (
                   <TabButton active={activeTab === 'evidence'} onClick={() => setActiveTab('evidence')}>Evidence</TabButton>
@@ -621,15 +622,15 @@ export default function ProjectUniverseView() {
               <div className="flex-1 overflow-y-auto p-5">
                 {activeTab === 'reason' && (
                   <div className="animate-fadeIn">
-                    <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-2">Reason for the impact</div>
+                    <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-2">Reason for the impact</div>
                     <div className="space-y-2">
                       {selectedDetails.explanations.map((exp, i) => (
-                        <div key={i} className="text-xs text-gray-200 leading-relaxed bg-gray-900/60 border border-gray-800 rounded-md p-3">
+                        <div key={i} className="text-xs text-ink-2 leading-relaxed bg-surface-1/60 border border-line rounded-md p-3">
                           {exp}
                         </div>
                       ))}
                       {selectedDetails.explanations.length === 0 && (
-                        <div className="text-xs text-gray-500 italic">No explanation on record.</div>
+                        <div className="text-xs text-ink-muted italic">No explanation on record.</div>
                       )}
                     </div>
 
@@ -670,8 +671,8 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       onClick={onClick}
       className={`flex-1 px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
         active
-          ? 'text-blue-300 border-b-2 border-blue-500 bg-gray-900/40'
-          : 'text-gray-500 hover:text-gray-300 hover:bg-gray-900/30 border-b-2 border-transparent'
+          ? 'text-accent-text border-b-2 border-accent-border bg-surface-1/40'
+          : 'text-ink-muted hover:text-ink-3 hover:bg-surface-1/30 border-b-2 border-transparent'
       }`}
     >
       {children}
@@ -683,8 +684,8 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
   return (
     <div className="flex items-center gap-1.5">
       <div className="w-2 h-2 rounded-full" style={{ background: color }} />
-      <span className="text-gray-500">{label}:</span>
-      <span className="font-bold text-gray-200 font-mono">{value}</span>
+      <span className="text-ink-muted">{label}:</span>
+      <span className="font-bold text-ink-2 font-mono">{value}</span>
     </div>
   );
 }

@@ -157,11 +157,11 @@ export default function ImpactView() {
     <div className="flex-1 overflow-auto p-6 animate-fadeIn">
       <>
       {/* Status / Launch bar */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
+      <div className="bg-surface-1 border border-line rounded-xl p-5 mb-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-bold text-gray-100">Impact Analysis Engine</h2>
-            <p className="text-sm text-gray-500">
+            <h2 className="text-lg font-bold text-ink-1">Impact Analysis Engine</h2>
+            <p className="text-sm text-ink-muted">
               Gemini analyzes ALL projects to identify impact relationships — technology dependencies, shared platforms, timeline blocking, etc.
             </p>
           </div>
@@ -179,7 +179,7 @@ export default function ImpactView() {
               <button
                 onClick={startAnalysis}
                 disabled={status?.isRunning || isStarting}
-                className="px-5 py-2.5 rounded-lg bg-blue-700 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-5 py-2.5 rounded-lg bg-accent-hover text-white text-sm font-semibold hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {status?.isRunning ? 'Running...' : isStarting ? 'Starting...' : impacts.length > 0 ? 'Re-run Analysis' : 'Start Full Analysis'}
               </button>
@@ -191,14 +191,14 @@ export default function ImpactView() {
         {status?.isRunning && (
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">
+              <span className="text-ink-4">
                 Batch {status.completedBatches}/{status.totalBatches} — {status.currentBatchDDS}
               </span>
-              <span className="text-blue-400 font-semibold">{status.totalImpacts} impacts found</span>
+              <span className="text-accent-text2 font-semibold">{status.totalImpacts} impacts found</span>
             </div>
-            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div className="h-2 bg-surface-2 rounded-full overflow-hidden">
               <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                className="h-full bg-accent rounded-full transition-all duration-500"
                 style={{ width: `${status.totalBatches > 0 ? (status.completedBatches / status.totalBatches) * 100 : 0}%` }}
               />
             </div>
@@ -213,21 +213,21 @@ export default function ImpactView() {
         {/* Stats summary */}
         {stats && stats.total > 0 && !status?.isRunning && (
           <div className="flex gap-4 flex-wrap">
-            <div className="bg-gray-800 rounded-lg px-4 py-2">
-              <div className="text-xs text-gray-500">Total Impacts</div>
-              <div className="text-xl font-bold text-gray-100 font-mono">{stats.total}</div>
+            <div className="bg-surface-2 rounded-lg px-4 py-2">
+              <div className="text-xs text-ink-muted">Total Impacts</div>
+              <div className="text-xl font-bold text-ink-1 font-mono">{stats.total}</div>
             </div>
             {Object.entries(stats.bySeverity).sort().map(([sev, count]) => (
-              <div key={sev} className="bg-gray-800 rounded-lg px-4 py-2">
+              <div key={sev} className="bg-surface-2 rounded-lg px-4 py-2">
                 <div className="text-xs" style={{ color: SEVERITY_COLORS[sev] || '#6b7280' }}>
                   {sev.charAt(0).toUpperCase() + sev.slice(1)}
                 </div>
-                <div className="text-xl font-bold text-gray-100 font-mono">{count}</div>
+                <div className="text-xl font-bold text-ink-1 font-mono">{count}</div>
               </div>
             ))}
-            <div className="bg-gray-800 rounded-lg px-4 py-2">
-              <div className="text-xs text-gray-500">Impact Types</div>
-              <div className="text-xl font-bold text-gray-100 font-mono">{Object.keys(stats.byType).length}</div>
+            <div className="bg-surface-2 rounded-lg px-4 py-2">
+              <div className="text-xs text-ink-muted">Impact Types</div>
+              <div className="text-xl font-bold text-ink-1 font-mono">{Object.keys(stats.byType).length}</div>
             </div>
           </div>
         )}
@@ -236,7 +236,7 @@ export default function ImpactView() {
       {/* Single counter — filters live entirely in the top Toolbar. */}
       {impacts.length > 0 && (
         <div className="flex items-center justify-end mb-4">
-          <span className="text-xs text-gray-500">{filtered.length} relationships shown</span>
+          <span className="text-xs text-ink-muted">{filtered.length} relationships shown</span>
         </div>
       )}
 
@@ -280,7 +280,7 @@ export default function ImpactView() {
               return (
                 <div key={pid}
                   onClick={() => openUniverse(pid)}
-                  className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3.5 transition-colors cursor-pointer hover:bg-gray-800/60 hover:border-gray-600 hover:shadow-lg"
+                  className="bg-surface-1 border border-line rounded-lg px-4 py-3.5 transition-colors cursor-pointer hover:bg-surface-2/60 hover:border-line-strong hover:shadow-lg"
                   style={{ borderLeftColor: sevColor, borderLeftWidth: '3px' }}
                   title="Abrir Project Universe"
                 >
@@ -288,11 +288,11 @@ export default function ImpactView() {
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-0.5" style={{ background: sevColor }} />
-                      <span className="text-[10px] font-mono shrink-0 text-gray-400">{pid}</span>
-                      <span className="text-[13px] font-semibold text-gray-100 truncate" title={projectName}>{projectName}</span>
+                      <span className="text-[10px] font-mono shrink-0 text-ink-4">{pid}</span>
+                      <span className="text-[13px] font-semibold text-ink-1 truncate" title={projectName}>{projectName}</span>
                     </div>
                     <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0"
-                      style={{ background: `${sevColor}22`, color: sevColor }}>
+                      style={{ background: `${sevColor}22`, color: `color-mix(in srgb, ${sevColor} 70%, var(--ink-1))` }}>
                       {severity}
                     </span>
                   </div>
@@ -314,7 +314,7 @@ export default function ImpactView() {
                           const c = getDDSColor(ent);
                           return (
                             <span key={`dds-${ent}`} className="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border"
-                              style={{ background: `${c}22`, color: c, borderColor: `${c}55` }}>
+                              style={{ background: `${c}22`, color: `color-mix(in srgb, ${c} 70%, var(--ink-1))`, borderColor: `${c}55` }}>
                               {ent}
                             </span>
                           );
@@ -326,13 +326,13 @@ export default function ImpactView() {
                   {/* Explanations */}
                   <div className="pl-[18px] space-y-1.5">
                     {gio?.explanation && (
-                      <div className="text-xs text-gray-300 leading-relaxed">
+                      <div className="text-xs text-ink-3 leading-relaxed">
                         <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wide mr-1.5">GIO</span>
                         {gio.explanation}
                       </div>
                     )}
                     {dds?.explanation && (
-                      <div className="text-xs text-gray-300 leading-relaxed">
+                      <div className="text-xs text-ink-3 leading-relaxed">
                         <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wide mr-1.5">DDS</span>
                         {dds.explanation}
                       </div>
@@ -346,12 +346,12 @@ export default function ImpactView() {
                         e.stopPropagation();
                         setExpandedEvidenceId(prev => prev === pid ? null : pid);
                       }}
-                      className="text-[10px] uppercase tracking-wider text-gray-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+                      className="text-[10px] uppercase tracking-wider text-ink-4 hover:text-accent-text transition-colors flex items-center gap-1"
                     >
                       <span>{expandedEvidenceId === pid ? '▾' : '▸'}</span>
                       <span>Evidence</span>
                     </button>
-                    <span className="text-[10px] text-gray-600">
+                    <span className="text-[10px] text-ink-faint">
                       · click anywhere else to open Project Universe
                     </span>
                   </div>
@@ -376,7 +376,7 @@ export default function ImpactView() {
               );
             })}
             {cards.length > 200 && (
-              <div className="text-center text-sm text-gray-500 py-4">
+              <div className="text-center text-sm text-ink-muted py-4">
                 Mostrando 200 de {cards.length} projetos — use filtros pra reduzir
               </div>
             )}
@@ -386,9 +386,9 @@ export default function ImpactView() {
 
       {/* Empty state */}
       {impacts.length === 0 && !status?.isRunning && (
-        <div className="text-center text-gray-500 py-20">
+        <div className="text-center text-ink-muted py-20">
           <div className="text-4xl mb-4">→</div>
-          <div className="text-lg font-semibold text-gray-300 mb-2">No impact analysis yet</div>
+          <div className="text-lg font-semibold text-ink-3 mb-2">No impact analysis yet</div>
           <div className="text-sm">Click &ldquo;Start Full Analysis&rdquo; to let Gemini analyze all projects</div>
         </div>
       )}

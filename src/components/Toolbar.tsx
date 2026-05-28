@@ -32,13 +32,13 @@ export default function Toolbar() {
   }, [projects]);
 
   return (
-    <div className="px-6 py-2.5 border-b border-gray-800 flex items-center gap-3 bg-[#0d1117] flex-wrap">
-      <span className="text-xs text-gray-500 mr-1">Filter:</span>
+    <div className="px-6 py-2.5 border-b border-line flex items-center gap-3 bg-surface flex-wrap">
+      <span className="text-xs text-ink-muted mr-1">Filter:</span>
 
       <select
         value={filters.dds}
         onChange={e => setFilters({ ...filters, dds: e.target.value })}
-        className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+        className="bg-surface-2 border border-line-strong text-ink-2 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-accent-border"
       >
         {ddsList.map(d => <option key={d} value={d}>{d === 'All' ? 'All DDS' : d}</option>)}
       </select>
@@ -46,7 +46,7 @@ export default function Toolbar() {
       <select
         value={filters.gate}
         onChange={e => setFilters({ ...filters, gate: e.target.value })}
-        className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+        className="bg-surface-2 border border-line-strong text-ink-2 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-accent-border"
       >
         {gateList.map(g => <option key={g} value={g}>{g === 'All' ? 'All Gates' : `Gate ${g}`}</option>)}
       </select>
@@ -54,7 +54,7 @@ export default function Toolbar() {
       <select
         value={filters.decision}
         onChange={e => setFilters({ ...filters, decision: e.target.value })}
-        className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+        className="bg-surface-2 border border-line-strong text-ink-2 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-accent-border"
       >
         {decisionList.map(d => <option key={d} value={d}>{d === 'All' ? 'All Decisions' : d}</option>)}
       </select>
@@ -63,7 +63,7 @@ export default function Toolbar() {
         <select
           value={filters.severity}
           onChange={e => setFilters({ ...filters, severity: e.target.value })}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+          className="bg-surface-2 border border-line-strong text-ink-2 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-accent-border"
           title="Filter impact relationships by severity"
         >
           <option value="All">All Severity</option>
@@ -73,11 +73,11 @@ export default function Toolbar() {
         </select>
       )}
 
-      <span className="text-xs text-gray-500 ml-1">Year:</span>
+      <span className="text-xs text-ink-muted ml-1">Year:</span>
       <select
         value={filters.yearFrom ?? ''}
         onChange={e => setFilters({ ...filters, yearFrom: e.target.value ? Number(e.target.value) : null })}
-        className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+        className="bg-surface-2 border border-line-strong text-ink-2 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-accent-border"
       >
         <option value="">From</option>
         {yearList.map(y => <option key={y} value={y}>{y}</option>)}
@@ -85,7 +85,7 @@ export default function Toolbar() {
       <select
         value={filters.yearTo ?? ''}
         onChange={e => setFilters({ ...filters, yearTo: e.target.value ? Number(e.target.value) : null })}
-        className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-blue-500"
+        className="bg-surface-2 border border-line-strong text-ink-2 rounded-md px-2.5 py-1 text-[13px] focus:outline-none focus:border-accent-border"
       >
         <option value="">To</option>
         {yearList.map(y => <option key={y} value={y}>{y}</option>)}
@@ -96,11 +96,11 @@ export default function Toolbar() {
         placeholder="Search projects..."
         value={filters.search}
         onChange={e => setFilters({ ...filters, search: e.target.value })}
-        className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-3 py-1 text-[13px] focus:outline-none focus:border-blue-500 w-48"
+        className="bg-surface-2 border border-line-strong text-ink-2 rounded-md px-3 py-1 text-[13px] focus:outline-none focus:border-accent-border w-48"
       />
 
       <div className="flex-1" />
-      <span className="text-xs text-gray-500">
+      <span className="text-xs text-ink-muted">
         {filtered.length} projects · {links.length} connections
       </span>
     </div>
