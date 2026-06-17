@@ -70,7 +70,9 @@ function monthFolderFromReview(reviewDate: string | null): string[] {
 
 // PRJxxxxx folder name may include a non-digit suffix (e.g. PRJ12345TR).
 // Match the same pattern as drive-engine for consistency.
-const PRJ_FOLDER_NAME = /^(PRJ[\s\-_]*[0-9]+[A-Z]{0,4})[_\- ]?(.*)$/i;
+// Matches PRJxxxxxxx and PGMxxxxxxx folder names (PGM = portfolio-level
+// programme grouping used by CDIO alongside individual projects).
+const PRJ_FOLDER_NAME = /^((?:PRJ|PGM)[\s\-_]*[0-9]+[A-Z]{0,4})[_\- ]?(.*)$/i;
 
 export function scanProjects(): ScannedProject[] {
   const projectMap = new Map<string, ScannedProject>();

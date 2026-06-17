@@ -6,12 +6,7 @@ import { getDDSColor } from '@/lib/constants';
 import LoadingState from './LoadingState';
 import EvidencePanel from './EvidencePanel';
 import type { ProjectImpact, ImpactAnalysisStatus } from '@/lib/types';
-
-const SEVERITY_COLORS: Record<string, string> = {
-  high: '#ef4444',
-  medium: '#f59e0b',
-  low: '#6b7280',
-};
+import { SEVERITY_COLORS } from '@/lib/constants';
 
 export default function ImpactView() {
   const { projects, filtered: globalFilteredProjects, filters, openUniverse, isPublic } = useProjectContext();

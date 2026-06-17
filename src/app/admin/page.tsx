@@ -2,33 +2,19 @@
 
 import { useState, useEffect } from 'react';
 
-type Provider = 'gemini' | 'deepseek';
-
-const PROVIDER_META: Record<Provider, { label: string; placeholder: string; helpUrl: string; helpLabel: string }> = {
-  gemini: {
-    label: 'Google Gemini',
-    placeholder: 'AIza...',
-    helpUrl: 'https://aistudio.google.com/apikey',
-    helpLabel: 'aistudio.google.com/apikey',
-  },
-  deepseek: {
-    label: 'DeepSeek',
-    placeholder: 'sk-...',
-    helpUrl: 'https://platform.deepseek.com/api_keys',
-    helpLabel: 'platform.deepseek.com/api_keys',
-  },
+const GEMINI_META = {
+  label: 'Google Gemini',
+  placeholder: 'AIza...',
+  helpUrl: 'https://aistudio.google.com/apikey',
+  helpLabel: 'aistudio.google.com/apikey',
 };
 
 export default function AdminPage() {
-  const [provider, setProvider] = useState<Provider>('gemini');
   const [apiKey, setApiKey] = useState('');
-  const [keyTarget, setKeyTarget] = useState<Provider>('gemini');
-  const [keysState, setKeysState] = useState<{
-    gemini: { masked: string; isConfigured: boolean };
-    deepseek: { masked: string; isConfigured: boolean };
-  }>({
-    gemini: { masked: 'Not configured', isConfigured: false },
-    deepseek: { masked: 'Not configured', isConfigured: false },
+  const [model, setModel] = useState('gemini-3-pro');
+  const [geminiState, setGeminiState] = useState<{ masked: string; isConfigured: boolean }>({
+    masked: 'Not configured',
+    isConfigured: false,
   });
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -61,11 +47,8 @@ export default function AdminPage() {
     fetch('/api/admin/config')
       .then(r => r.json())
       .then(data => {
-        if (data.provider === 'deepseek' || data.provider === 'gemini') {
-          setProvider(data.provider);
-          setKeyTarget(data.provider);
-        }
-        if (data.keys) setKeysState(data.keys);
+        if (data.keys?.gemini) setGeminiState(data.keys.gemini);
+        if (typeof data.model === 'string') setModel(data.model);
         setStats(data.stats || null);
       })
       .catch(() => {});
@@ -100,7 +83,7 @@ export default function AdminPage() {
       const res = await fetch('/api/admin/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKey.trim(), targetProvider: keyTarget }),
+        body: JSON.stringify({ apiKey: apiKey.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -111,21 +94,6 @@ export default function AdminPage() {
     } catch (e: unknown) {
       setStatus('error');
       setTestResult(e instanceof Error ? e.message : 'Save failed');
-    }
-  };
-
-  const handleProviderChange = async (next: Provider) => {
-    setProvider(next);
-    setKeyTarget(next);
-    try {
-      await fetch('/api/admin/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: next }),
-      });
-      refreshConfig();
-    } catch {
-      // ignore
     }
   };
 
@@ -309,10 +277,10 @@ export default function AdminPage() {
         background: 'var(--surface)',
       }}>
         <a href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
-          <img src="/icon-192.png" alt="Strom" style={{ width: 40, height: 40, borderRadius: 8 }} />
+          <img src="/icon-192.png" alt="Alumen" style={{ width: 40, height: 40, borderRadius: 8 }} />
           <div style={{ lineHeight: 1 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <span style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink-1)', letterSpacing: '-0.02em' }}>Strom</span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink-1)', letterSpacing: '-0.02em' }}>Alumen</span>
               <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-4)', letterSpacing: '-0.02em' }}>— Portfolio Intelligence</span>
             </div>
             <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 4 }}>Air Liquide · Administration</div>
@@ -335,42 +303,12 @@ export default function AdminPage() {
       {/* Content */}
       <div style={{ maxWidth: 640, margin: '0 auto', padding: 32, display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-        {/* LLM Provider Configuration */}
+        {/* Gemini Configuration */}
         <div style={panelStyle}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-1)', marginBottom: 4 }}>LLM Provider Configuration</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-1)', marginBottom: 4 }}>Gemini Configuration</div>
           <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 20 }}>
-            Choose between Google Gemini and DeepSeek for AI-powered project impact analysis.
-          </div>
-
-          {/* Provider selector */}
-          <div style={{ fontSize: 10, color: 'var(--ink-faint)', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>ACTIVE PROVIDER</div>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-            {(['gemini', 'deepseek'] as Provider[]).map(p => {
-              const active = provider === p;
-              return (
-                <button
-                  key={p}
-                  onClick={() => handleProviderChange(p)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 14px',
-                    borderRadius: 6,
-                    border: active ? '1px solid #1d4ed8' : '1px solid var(--border-strong)',
-                    background: active ? '#1d4ed833' : 'var(--surface-2)',
-                    color: active ? '#bfdbfe' : 'var(--ink-4)',
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div>{PROVIDER_META[p].label}</div>
-                  <div style={{ fontSize: 11, color: keysState[p].isConfigured ? '#4ade80' : 'var(--ink-4)', marginTop: 4, fontWeight: 500 }}>
-                    {keysState[p].isConfigured ? `Key: ${keysState[p].masked}` : 'No key configured'}
-                  </div>
-                </button>
-              );
-            })}
+            The application uses Google Gemini ({model}) for AI-powered project impact analysis.
+            The API key is stored in <code style={{ color: 'var(--ink-4)' }}>config.json</code>.
           </div>
 
           {/* Status */}
@@ -379,40 +317,14 @@ export default function AdminPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{
                 width: 10, height: 10, borderRadius: '50%',
-                background: keysState[provider].isConfigured ? '#22c55e' : '#ef4444',
+                background: geminiState.isConfigured ? '#22c55e' : '#ef4444',
               }} />
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                {keysState[provider].isConfigured
-                  ? `${PROVIDER_META[provider].label} key configured: ${keysState[provider].masked}`
-                  : `No ${PROVIDER_META[provider].label} key configured`}
+                {geminiState.isConfigured
+                  ? `Gemini key configured: ${geminiState.masked} · model ${model}`
+                  : 'No Gemini key configured'}
               </span>
             </div>
-          </div>
-
-          {/* Key target selector */}
-          <div style={{ fontSize: 10, color: 'var(--ink-faint)', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 8 }}>SAVE KEY FOR</div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            {(['gemini', 'deepseek'] as Provider[]).map(p => {
-              const active = keyTarget === p;
-              return (
-                <button
-                  key={p}
-                  onClick={() => setKeyTarget(p)}
-                  style={{
-                    padding: '6px 14px',
-                    borderRadius: 6,
-                    border: active ? '1px solid #6d28d9' : '1px solid var(--border-strong)',
-                    background: active ? '#6d28d933' : 'var(--surface-2)',
-                    color: active ? '#ddd6fe' : 'var(--ink-4)',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {PROVIDER_META[p].label}
-                </button>
-              );
-            })}
           </div>
 
           {/* Input */}
@@ -421,7 +333,7 @@ export default function AdminPage() {
               type="password"
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
-              placeholder={PROVIDER_META[keyTarget].placeholder}
+              placeholder={GEMINI_META.placeholder}
               style={inputStyle}
             />
             <button
@@ -439,10 +351,10 @@ export default function AdminPage() {
             <div style={{ fontSize: 13, color: '#f87171', marginBottom: 8 }}>{testResult}</div>
           )}
           <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
-            Get your {PROVIDER_META[keyTarget].label} key at{' '}
-            <a href={PROVIDER_META[keyTarget].helpUrl} target="_blank" rel="noopener noreferrer"
+            Get your Gemini key at{' '}
+            <a href={GEMINI_META.helpUrl} target="_blank" rel="noopener noreferrer"
               style={{ color: 'var(--accent-text-2)', textDecoration: 'underline' }}>
-              {PROVIDER_META[keyTarget].helpLabel}
+              {GEMINI_META.helpLabel}
             </a>
           </div>
         </div>
@@ -451,11 +363,11 @@ export default function AdminPage() {
         <div style={panelStyle}>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-1)', marginBottom: 4 }}>Test Connection</div>
           <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 16 }}>
-            Send a test prompt to verify your {PROVIDER_META[provider].label} API key works.
+            Send a test prompt to verify your Gemini API key works.
           </div>
           <button onClick={handleTest} disabled={testStatus === 'testing'}
             style={{ ...btnPurple, opacity: testStatus === 'testing' ? 0.5 : 1 }}>
-            {testStatus === 'testing' ? 'Testing...' : `Test ${PROVIDER_META[provider].label} Connection`}
+            {testStatus === 'testing' ? 'Testing...' : 'Test Gemini Connection'}
           </button>
           {testStatus === 'success' && (
             <div style={{ marginTop: 14, background: '#052e16', border: '1px solid #166534', borderRadius: 8, padding: 12, fontSize: 13, color: '#86efac' }}>
@@ -592,7 +504,7 @@ export default function AdminPage() {
         <div style={panelStyle}>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-1)', marginBottom: 4 }}>Analysis Cache</div>
           <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 16 }}>
-            LLM results are cached per provider to avoid repeated API calls.
+            LLM results are cached to avoid repeated API calls.
           </div>
           {stats && (
             <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>

@@ -15,9 +15,10 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useProjectContext } from '@/context/ProjectContext';
-import { getDDSColor } from '@/lib/constants';
+import { getDDSColor, SEVERITY_COLORS } from '@/lib/constants';
 import LoadingState from './LoadingState';
 import EvidencePanel, { DeepDiveButton } from './EvidencePanel';
+import { SourcePopover, type SourceRef } from './SourcePopover';
 
 // ─── Data shapes (mirror /api/impact/project/universe response) ──────────────
 
@@ -27,6 +28,13 @@ interface PseudoNodeImpact {
   direction: string;
   impactTypes: string[];
   explanations: string[];
+  // citationsByExplanation[i] backs explanations[i]; absent on legacy rows
+  // generated before the citation pipeline existed.
+  citationsByExplanation?: SourceRef[][];
+  // Parallel to explanations: the raw row's impact_type/severity that
+  // produced each message. Lets the UI render per-message badges.
+  impactTypeByExplanation?: string[];
+  severityByExplanation?: string[];
   explanation: string;
 }
 
@@ -44,6 +52,9 @@ interface ProjectEdgeData {
   direction: string;
   impactTypes: string[];
   explanations: string[];
+  citationsByExplanation?: SourceRef[][];
+  impactTypeByExplanation?: string[];
+  severityByExplanation?: string[];
   explanation: string;
   count: number;
   bidirectional: boolean;
@@ -73,11 +84,9 @@ interface UniverseResponse {
 
 // ─── Visual constants ────────────────────────────────────────────────────────
 
-const SEVERITY_COLOR: Record<string, string> = {
-  high: '#ef4444',
-  medium: '#f59e0b',
-  low: '#6b7280',
-};
+// Severity colors are imported from constants.ts (single source of truth). Use
+// SEVERITY_COLOR locally as the existing name to keep call sites unchanged.
+const SEVERITY_COLOR = SEVERITY_COLORS;
 
 const GIO_COLOR = '#a855f7';     // purple — GIO services
 const GIO_GLOW = 'rgba(168, 85, 247, 0.4)';
@@ -96,6 +105,58 @@ interface EdgeDetails {
   direction: string;
   impactTypes: string[];
   explanations: string[];
+  // Parallel to explanations: per-explanation citations from the LLM.
+  citationsByExplanation: SourceRef[][];
+  // Parallel: per-message impact_type and severity. Lets the popover card
+  // show one badge pair per "Reason for the impact" bullet.
+  impactTypeByExplanation: string[];
+  severityByExplanation: string[];
+}
+
+// Deduplicate explanations while preserving the citation array bound to each
+// surviving entry. When the same explanation text appears more than once
+// across impacts, we union their citations (deduped by doc_url) instead of
+// dropping the duplicates' sources on the floor. First seen impact_type and
+// severity win on collision.
+function dedupExplanationsWithCitations(
+  impacts: { explanations: string[]; citationsByExplanation?: SourceRef[][]; impactTypeByExplanation?: string[]; severityByExplanation?: string[] }[]
+): { explanations: string[]; citationsByExplanation: SourceRef[][]; impactTypeByExplanation: string[]; severityByExplanation: string[] } {
+  const order: string[] = [];
+  const citationsByText = new Map<string, SourceRef[]>();
+  const seenCitationKeys = new Map<string, Set<string>>();
+  const impactTypeByText = new Map<string, string>();
+  const severityByText = new Map<string, string>();
+
+  for (const imp of impacts) {
+    const cbe = imp.citationsByExplanation || [];
+    const itbe = imp.impactTypeByExplanation || [];
+    const sbe = imp.severityByExplanation || [];
+    imp.explanations.forEach((exp, i) => {
+      if (!exp) return;
+      if (!citationsByText.has(exp)) {
+        order.push(exp);
+        citationsByText.set(exp, []);
+        seenCitationKeys.set(exp, new Set());
+        if (itbe[i]) impactTypeByText.set(exp, itbe[i]);
+        if (sbe[i]) severityByText.set(exp, sbe[i]);
+      }
+      const dest = citationsByText.get(exp)!;
+      const seen = seenCitationKeys.get(exp)!;
+      for (const c of cbe[i] || []) {
+        const k = `${c.doc_url}|${c.snippet}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        dest.push(c);
+      }
+    });
+  }
+
+  return {
+    explanations: order,
+    citationsByExplanation: order.map(exp => citationsByText.get(exp)!),
+    impactTypeByExplanation: order.map(exp => impactTypeByText.get(exp) || ''),
+    severityByExplanation: order.map(exp => severityByText.get(exp) || ''),
+  };
 }
 
 // Custom edge that draws a thicker hit-area for easier clicking + the visible stroke
@@ -360,6 +421,7 @@ export default function ProjectUniverseView() {
         data: { isSelected: false },
       });
 
+      const gioExp = dedupExplanationsWithCitations(node.impacts);
       detailsMap.set(edgeId, {
         category: 'gio',
         targetName: node.name,
@@ -369,7 +431,10 @@ export default function ProjectUniverseView() {
         severity: node.severity,
         direction: primary.direction,
         impactTypes: Array.from(new Set(node.impacts.flatMap(i => i.impactTypes))),
-        explanations: Array.from(new Set(node.impacts.flatMap(i => i.explanations).filter(Boolean))),
+        explanations: gioExp.explanations,
+        citationsByExplanation: gioExp.citationsByExplanation,
+        impactTypeByExplanation: gioExp.impactTypeByExplanation,
+        severityByExplanation: gioExp.severityByExplanation,
       });
     }
 
@@ -404,6 +469,7 @@ export default function ProjectUniverseView() {
         data: { isSelected: false },
       });
 
+      const ddsExp = dedupExplanationsWithCitations(node.impacts);
       detailsMap.set(edgeId, {
         category: 'dds',
         targetName: node.name,
@@ -413,7 +479,10 @@ export default function ProjectUniverseView() {
         severity: node.severity,
         direction: primary.direction,
         impactTypes: Array.from(new Set(node.impacts.flatMap(i => i.impactTypes))),
-        explanations: Array.from(new Set(node.impacts.flatMap(i => i.explanations).filter(Boolean))),
+        explanations: ddsExp.explanations,
+        citationsByExplanation: ddsExp.citationsByExplanation,
+        impactTypeByExplanation: ddsExp.impactTypeByExplanation,
+        severityByExplanation: ddsExp.severityByExplanation,
       });
     }
 
@@ -454,6 +523,21 @@ export default function ProjectUniverseView() {
         data: { isSelected: false },
       });
 
+      const projExpRaw = edge.explanations.length > 0
+        ? edge.explanations
+        : [edge.explanation].filter(Boolean);
+      const projCbeRaw = edge.citationsByExplanation
+        ?? projExpRaw.map(() => [] as SourceRef[]);
+      const projItbeRaw = edge.impactTypeByExplanation
+        ?? projExpRaw.map(() => edge.impactTypes[0] || '');
+      const projSbeRaw = edge.severityByExplanation
+        ?? projExpRaw.map(() => edge.severity);
+      const projExp = dedupExplanationsWithCitations([{
+        explanations: projExpRaw,
+        citationsByExplanation: projCbeRaw,
+        impactTypeByExplanation: projItbeRaw,
+        severityByExplanation: projSbeRaw,
+      }]);
       detailsMap.set(edgeId, {
         category: 'project',
         targetName: edge.otherProjectId,
@@ -463,7 +547,10 @@ export default function ProjectUniverseView() {
         severity: edge.severity,
         direction: edge.direction,
         impactTypes: edge.impactTypes,
-        explanations: edge.explanations.length > 0 ? edge.explanations : [edge.explanation].filter(Boolean),
+        explanations: projExp.explanations,
+        citationsByExplanation: projExp.citationsByExplanation,
+        impactTypeByExplanation: projExp.impactTypeByExplanation,
+        severityByExplanation: projExp.severityByExplanation,
       });
     }
 
@@ -593,22 +680,9 @@ export default function ProjectUniverseView() {
 
           {selectedDetails && (
             <>
-              {/* Header (always visible) */}
-              <div className="px-5 pt-4 pb-3 border-b border-line animate-fadeIn">
-                <div className="text-[10px] uppercase tracking-wider text-ink-muted mb-1">
-                  {selectedDetails.category === 'gio' ? 'GIO Service' : selectedDetails.category === 'dds' ? 'DDS Entity' : 'Project'}
-                </div>
-                <div className="text-base font-bold text-ink-1 leading-snug" style={{ color: selectedDetails.color }}>
-                  {selectedDetails.title}
-                </div>
-                <div className="text-xs text-ink-muted mt-1">{selectedDetails.subtitle}</div>
-                <div className="mt-3 flex gap-2 flex-wrap">
-                  <Badge label={selectedDetails.severity} bg={`${SEVERITY_COLOR[selectedDetails.severity]}33`} fg={SEVERITY_COLOR[selectedDetails.severity]} />
-                  {selectedDetails.impactTypes.map(t => (
-                    <Badge key={t} label={t.replace(/_/g, ' ')} bg="#1e3a8a55" fg="#93c5fd" />
-                  ))}
-                </div>
-              </div>
+              {/* Header removed — per-message badges in "Reason for the impact"
+                  carry the severity + impact_type info that used to live here.
+                  Aggregated badges duplicated information visible per-bullet. */}
 
               {/* Tabs */}
               <div className="flex border-b border-line shrink-0">
@@ -624,11 +698,30 @@ export default function ProjectUniverseView() {
                   <div className="animate-fadeIn">
                     <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-2">Reason for the impact</div>
                     <div className="space-y-2">
-                      {selectedDetails.explanations.map((exp, i) => (
-                        <div key={i} className="text-xs text-ink-2 leading-relaxed bg-surface-1/60 border border-line rounded-md p-3">
-                          {exp}
-                        </div>
-                      ))}
+                      {selectedDetails.explanations.map((exp, i) => {
+                        const cites = selectedDetails.citationsByExplanation?.[i] ?? [];
+                        const it = selectedDetails.impactTypeByExplanation?.[i];
+                        const sv = selectedDetails.severityByExplanation?.[i];
+                        const sevColor = sv ? SEVERITY_COLOR[sv] : undefined;
+                        return (
+                          <div key={i} className="text-xs text-ink-2 leading-relaxed bg-surface-1/60 border border-line rounded-md p-3 flex flex-col gap-2">
+                            <div className="flex items-start gap-2">
+                              <div className="flex-1 min-w-0">{exp}</div>
+                              {cites.length > 0 && <SourcePopover sources={cites} label="Sources" />}
+                            </div>
+                            {(it || sv) && (
+                              <div className="flex gap-1.5 flex-wrap pt-1 border-t border-line/40">
+                                {sv && sevColor && (
+                                  <Badge label={sv} bg={`${sevColor}33`} fg={sevColor} />
+                                )}
+                                {it && (
+                                  <Badge label={it.replace(/_/g, ' ')} bg="#1e3a8a55" fg="#93c5fd" />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                       {selectedDetails.explanations.length === 0 && (
                         <div className="text-xs text-ink-muted italic">No explanation on record.</div>
                       )}

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from './db';
 import { extractTags } from './similarity';
-import { getProjectDocuments } from './drive-engine';
+import { getProjectDocuments, getFileNamesForUrls } from './drive-engine';
 import { getPrompts } from './prompts';
 import { generateContent } from './llm';
 import { normalizeDdsList } from './dds-catalog';
@@ -18,6 +18,8 @@ export const IMPACT_ANALYSIS_QUERY = `
     g.business_apps_cis,
     g.dds_entities_touched, g.gio_services_touched,
     g.tech_tags, g.vendors, g.data_classifications, g.mentioned_projects,
+    g.project_relations, g.out_of_scope,
+    g.impact_claims, g.timeline_struct,
     g.raw_gemini_response, g.source_files, g.analyzed_at,
     g.status as goal_status, g.error_message,
     p.name as proj_name, p.dds, p.gate as proj_gate, p.decision, p.cost_keur, p.description, p.remarks,
@@ -41,6 +43,50 @@ let analysisStatus: ImpactAnalysisStatus = {
 
 // ─── Fetch all project summaries from DB ─────────────────────────────────────
 
+export interface ProjectRelation {
+  project_id: string;
+  kind: string;
+  relation: string;
+  source_file: string;
+  evidence_quote: string;
+  confidence: 'stated' | 'inferred';
+}
+
+export interface OutOfScope {
+  topic: string;
+  evidence_quote: string;
+  source_file: string;
+}
+
+// Onda 3: atomic anchored claims emitted by Goals — the Impact engine treats
+// these as the authoritative source for GIO/DDS edges, replacing free-text
+// inference from `gio_sl_dds_impacts`.
+export interface ImpactClaim {
+  target_kind: 'gio' | 'dds';
+  target: string;
+  role: 'primary_provider' | 'downstream_consumer' | 'regional_executor' | 'risk_owner' | 'blocked_by' | string;
+  severity: 'high' | 'medium' | 'low' | string;
+  impact_type: string;
+  evidence_file: string;
+  evidence_quote: string;
+  confidence: 'stated' | 'inferred';
+}
+
+export interface TimelineDep {
+  project_id: string;
+  reason: string;
+  evidence_file: string;
+  evidence_quote: string;
+}
+
+export interface TimelineStruct {
+  gate1_actual: string | null;
+  gate2_target: string | null;
+  go_live_target: string | null;
+  must_complete_before: TimelineDep[];
+  blocked_by: TimelineDep[];
+}
+
 export interface GoalEntry {
   goal_id: number;
   gate: string;
@@ -63,6 +109,10 @@ export interface GoalEntry {
   vendors: string[];
   data_classifications: string[];
   mentioned_projects: string[];
+  project_relations: ProjectRelation[];
+  out_of_scope: OutOfScope[];
+  impact_claims: ImpactClaim[];
+  timeline_struct: TimelineStruct | null;
   source_files: string;
   analyzed_at: string;
   goal_status: string;
@@ -137,6 +187,13 @@ function fetchAllProjectRecords(): ProjectFullRecord[] {
       try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string') : []; }
       catch { return []; }
     };
+    // Onda 2: parse JSON-of-objects for the new structured arrays. Returns
+    // [] on any decode error so callers never see undefined.
+    const parseObjArr = <T>(raw: unknown): T[] => {
+      if (typeof raw !== 'string' || !raw) return [];
+      try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed as T[] : []; }
+      catch { return []; }
+    };
 
     const goalEntries: GoalEntry[] = sortedEntries.map(e => ({
       goal_id: e.goal_id as number,
@@ -160,6 +217,28 @@ function fetchAllProjectRecords(): ProjectFullRecord[] {
       vendors:              parseArr(e.vendors),
       data_classifications: parseArr(e.data_classifications),
       mentioned_projects:   parseArr(e.mentioned_projects),
+      project_relations:    parseObjArr<ProjectRelation>(e.project_relations),
+      out_of_scope:         parseObjArr<OutOfScope>(e.out_of_scope),
+      impact_claims:        parseObjArr<ImpactClaim>(e.impact_claims),
+      // Normalize timeline so downstream code can do .length without guards.
+      // LLM may emit `{}` (no timeline) which serializes to a TimelineStruct
+      // where must_complete_before/blocked_by are undefined.
+      timeline_struct:      (() => {
+        const empty: TimelineStruct = { gate1_actual: null, gate2_target: null, go_live_target: null, must_complete_before: [], blocked_by: [] };
+        if (typeof e.timeline_struct !== 'string' || !e.timeline_struct) return empty;
+        try {
+          const t = JSON.parse(e.timeline_struct);
+          if (!t || typeof t !== 'object') return empty;
+          const tr = t as Record<string, unknown>;
+          return {
+            gate1_actual:   (typeof tr.gate1_actual   === 'string' ? tr.gate1_actual   : null),
+            gate2_target:   (typeof tr.gate2_target   === 'string' ? tr.gate2_target   : null),
+            go_live_target: (typeof tr.go_live_target === 'string' ? tr.go_live_target : null),
+            must_complete_before: Array.isArray(tr.must_complete_before) ? tr.must_complete_before as TimelineDep[] : [],
+            blocked_by:           Array.isArray(tr.blocked_by)           ? tr.blocked_by           as TimelineDep[] : [],
+          } as TimelineStruct;
+        } catch { return empty; }
+      })(),
       source_files: (e.source_files as string) || '',
       analyzed_at: (e.analyzed_at as string) || '',
       goal_status: (e.goal_status as string) || '',
@@ -406,6 +485,56 @@ function buildImpactPrompt(records: ProjectFullRecord[]): string {
       parts.push(emitArr('DDS entities touched', latest.dds_entities_touched));
       parts.push(emitArr('GIO services touched', latest.gio_services_touched));
       parts.push(emitArr('Mentions other projects', latest.mentioned_projects));
+
+      // Onda 2: pre-extracted cross-project relationships from Goals. These
+      // are already grounded in evidence quotes — surface them as authoritative
+      // pre-edges so the LLM doesn't have to re-derive project↔project links
+      // from prose. Format keeps the kind+quote so the LLM can emit a matching
+      // impact row with the same wording.
+      if (latest.project_relations.length > 0) {
+        const lines = latest.project_relations
+          .map(pr => `      • → ${pr.project_id} [${pr.kind}, ${pr.confidence}]: "${pr.evidence_quote}" (in ${pr.source_file})`)
+          .join('\n');
+        parts.push(`\n  Pre-extracted project relations (from Goals):\n${lines}`);
+      }
+
+      // Onda 2: explicit out-of-scope statements. Used as NEGATIVE signal — the
+      // LLM is instructed below not to invent impacts that contradict these.
+      if (latest.out_of_scope.length > 0) {
+        const lines = latest.out_of_scope
+          .map(o => `      • "${o.topic}" — "${o.evidence_quote}" (in ${o.source_file})`)
+          .join('\n');
+        parts.push(`\n  EXCLUSIONS (project explicitly out-of-scope for these topics — do NOT emit impacts that contradict):\n${lines}`);
+      }
+
+      // Onda 3: atomic claims, the authoritative source for GIO/DDS edges.
+      // Each claim already carries target_kind + target + role + severity +
+      // impact_type + evidence. The LLM should treat these as the GROUND
+      // TRUTH and emit matching impact rows verbatim (one impact per claim).
+      if (latest.impact_claims.length > 0) {
+        const lines = latest.impact_claims
+          .map(c => `      • ${c.target_kind.toUpperCase()} "${c.target}" role=${c.role} sev=${c.severity} type=${c.impact_type} (${c.confidence}): "${c.evidence_quote}" (in ${c.evidence_file})`)
+          .join('\n');
+        parts.push(`\n  Atomic impact claims (from Goals — emit one impact row per claim, do not invent extras):\n${lines}`);
+      }
+
+      // Onda 3: structured timeline + dependencies. Defensive: even though the
+      // parser normalizes to empty arrays, guard against any legacy/malformed
+      // value that slipped past.
+      const tl = latest.timeline_struct;
+      const mcb = Array.isArray(tl?.must_complete_before) ? tl!.must_complete_before : [];
+      const blk = Array.isArray(tl?.blocked_by) ? tl!.blocked_by : [];
+      if (tl && (tl.gate1_actual || tl.gate2_target || tl.go_live_target || mcb.length || blk.length)) {
+        const tlParts: string[] = [];
+        if (tl.gate1_actual)   tlParts.push(`gate1=${tl.gate1_actual}`);
+        if (tl.gate2_target)   tlParts.push(`gate2=${tl.gate2_target}`);
+        if (tl.go_live_target) tlParts.push(`go-live=${tl.go_live_target}`);
+        const header = tlParts.length ? `      schedule: ${tlParts.join(', ')}` : '';
+        const blocks = blk.map(d => `      • blocked_by → ${d.project_id}: "${d.evidence_quote}" (${d.evidence_file})`).join('\n');
+        const before = mcb.map(d => `      • must_complete_before → ${d.project_id}: "${d.evidence_quote}" (${d.evidence_file})`).join('\n');
+        const body = [header, blocks, before].filter(Boolean).join('\n');
+        if (body) parts.push(`\n  Timeline:\n${body}`);
+      }
     }
 
     parts.push(emit('Decision', r.decision));
@@ -435,12 +564,15 @@ function buildImpactPrompt(records: ProjectFullRecord[]): string {
 
     try {
       const docs = getProjectDocuments(r.projectId);
-      const docTexts = docs
+      // Label each document chunk with its URL + file name so the LLM can
+      // produce verifiable citations. The bracketed "[doc_url=..., file_name=...]"
+      // header is the exact key the model echoes back in the citations array.
+      const labelled = docs
         .filter(d => d.status === 'success' && d.content)
-        .map(d => d.content.slice(0, DOC_SLICE))
+        .map(d => `[doc_url=${d.url}, file_name=${d.fileName || '(unknown)'}]\n${d.content.slice(0, DOC_SLICE)}`)
         .join('\n---\n')
         .slice(0, DOCS_TOTAL);
-      if (docTexts) parts.push(`\n  Documents:\n${docTexts}`);
+      if (labelled) parts.push(`\n  Documents:\n${labelled}`);
     } catch { /* no docs */ }
 
     const entry = parts.filter(Boolean).join('');
@@ -465,6 +597,11 @@ function buildImpactPrompt(records: ProjectFullRecord[]): string {
 
 // ─── Parse Gemini response robustly ──────────────────────────────────────────
 
+interface RawCitation {
+  doc_url: string;
+  snippet: string;
+}
+
 interface RawImpact {
   source: string;
   target: string;
@@ -474,6 +611,7 @@ interface RawImpact {
   explanation: string;
   gio_services?: string[];
   dds_entities?: string[];
+  citations?: RawCitation[];
 }
 
 function parseImpactResponse(text: string): RawImpact[] {
@@ -495,16 +633,27 @@ function parseImpactResponse(text: string): RawImpact[] {
     }
 
     // Normalize field names — Gemini may use different keys
-    return parsed.map((item: Record<string, unknown>) => ({
-      source: (item.source || item.source_project_id || item.sourceProjectId || '') as string,
-      target: (item.target || item.target_project_id || item.targetProjectId || '') as string,
-      impact_type: (item.impact_type || item.impactType || item.type || 'technology_dependency') as string,
-      direction: (item.direction || item.relationship || 'requires_coordination') as string,
-      severity: (item.severity || item.level || 'medium') as string,
-      explanation: (item.explanation || item.reason || item.description || '') as string,
-      gio_services: Array.isArray(item.gio_services) ? item.gio_services as string[] : [],
-      dds_entities: normalizeDdsList(item.dds_entities ?? item.ddsEntities ?? item.dds),
-    })).filter(item => item.source && item.target) as RawImpact[];
+    return parsed.map((item: Record<string, unknown>) => {
+      const rawCitations = Array.isArray(item.citations) ? item.citations as Record<string, unknown>[] : [];
+      const citations: RawCitation[] = rawCitations
+        .map(c => ({
+          doc_url: String(c.doc_url || c.docUrl || c.url || '').trim(),
+          snippet: String(c.snippet || c.quote || c.text || '').trim(),
+        }))
+        .filter(c => c.doc_url && c.snippet);
+
+      return {
+        source: (item.source || item.source_project_id || item.sourceProjectId || '') as string,
+        target: (item.target || item.target_project_id || item.targetProjectId || '') as string,
+        impact_type: (item.impact_type || item.impactType || item.type || 'technology_dependency') as string,
+        direction: (item.direction || item.relationship || 'requires_coordination') as string,
+        severity: (item.severity || item.level || 'medium') as string,
+        explanation: (item.explanation || item.reason || item.description || '') as string,
+        gio_services: Array.isArray(item.gio_services) ? item.gio_services as string[] : [],
+        dds_entities: normalizeDdsList(item.dds_entities ?? item.ddsEntities ?? item.dds),
+        citations,
+      };
+    }).filter(item => item.source && item.target) as RawImpact[];
   } catch (err) {
     console.error('[Impact] Failed to parse Gemini response:', (err as Error).message, '— raw:', text.slice(0, 500));
     return [];
@@ -517,13 +666,57 @@ function storeImpacts(impacts: RawImpact[], batchId: string): number {
   const db = getDb();
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO projects_impact
-    (source_project_id, target_project_id, impact_type, direction, severity, explanation, batch_id, gio_services, dds_entities)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (source_project_id, target_project_id, impact_type, direction, severity, explanation, batch_id, gio_services, dds_entities, citations, evidence_chain)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+
+  // Onda 4: load each source project's Goals once so we can attach an
+  // evidence_chain pointer for every impact row we store. Two-pass design:
+  //   1. Fetch all relevant project_goals (source projects in this batch).
+  //   2. For each impact row, find which atomic claim (or project_relation)
+  //      it corresponds to and persist the trace.
+  const sourceProjectIds = Array.from(new Set(impacts.map(i => i.source).filter(Boolean)));
+  const goalsByProject = new Map<string, { goal_id: number; impact_claims: string; project_relations: string }>();
+  if (sourceProjectIds.length > 0) {
+    const placeholders = sourceProjectIds.map(() => '?').join(',');
+    const rows = db.prepare(
+      `SELECT id, project_id, impact_claims, project_relations FROM project_goals WHERE project_id IN (${placeholders}) AND status = 'success'`
+    ).all(...sourceProjectIds) as Array<{ id: number; project_id: string; impact_claims: string; project_relations: string }>;
+    for (const r of rows) goalsByProject.set(r.project_id, { goal_id: r.id, impact_claims: r.impact_claims, project_relations: r.project_relations });
+  }
+
+  const buildChain = (item: RawImpact): string => {
+    const g = goalsByProject.get(item.source);
+    if (!g) return '[]';
+    // Pseudo-targets → match against impact_claims by (target_kind, target).
+    if (item.target === 'GIO_SERVICES' || item.target === 'DDS_IMPACTS') {
+      let claims: Array<{ target_kind: string; target: string }> = [];
+      try { const v = JSON.parse(g.impact_claims || '[]'); if (Array.isArray(v)) claims = v as typeof claims; } catch { /* ignore */ }
+      const expectedKind = item.target === 'GIO_SERVICES' ? 'gio' : 'dds';
+      const labels = item.target === 'GIO_SERVICES' ? (item.gio_services || []) : (item.dds_entities || []);
+      const matches: number[] = [];
+      claims.forEach((c, idx) => {
+        if (c.target_kind === expectedKind && labels.includes(c.target)) matches.push(idx);
+      });
+      if (matches.length === 0) return JSON.stringify([{ goal_id: g.goal_id, source: 'free' as const }]);
+      return JSON.stringify(matches.map(idx => ({ goal_id: g.goal_id, claim_idx: idx, source: 'claim' as const })));
+    }
+    // Project↔project → match against project_relations by target project_id.
+    if (item.target && item.target.startsWith('PRJ')) {
+      let relations: Array<{ project_id: string }> = [];
+      try { const v = JSON.parse(g.project_relations || '[]'); if (Array.isArray(v)) relations = v as typeof relations; } catch { /* ignore */ }
+      const matchIdx = relations.findIndex(r => r.project_id === item.target);
+      if (matchIdx >= 0) return JSON.stringify([{ goal_id: g.goal_id, relation_idx: matchIdx, source: 'relation' as const }]);
+    }
+    return JSON.stringify([{ goal_id: g.goal_id, source: 'free' as const }]);
+  };
 
   let inserted = 0;
   const insertMany = db.transaction((items: RawImpact[]) => {
     for (const item of items) {
+      // Drop self-loops: an LLM occasionally emits source===target rows from
+      // out_of_scope-flavored sentences. They are never meaningful as edges.
+      if (item.source && item.target && item.source === item.target) continue;
       const result = stmt.run(
         item.source,
         item.target,
@@ -533,7 +726,9 @@ function storeImpacts(impacts: RawImpact[], batchId: string): number {
         item.explanation || '',
         batchId,
         JSON.stringify(item.gio_services || []),
-        JSON.stringify(item.dds_entities || [])
+        JSON.stringify(item.dds_entities || []),
+        JSON.stringify(item.citations || []),
+        buildChain(item),
       );
       if (result.changes > 0) inserted++;
     }
@@ -660,6 +855,14 @@ export function clearAllImpacts(): number {
   }
   const db = getDb();
   const result = db.prepare('DELETE FROM projects_impact').run();
+  // Onda 4: cascade invalidation of deep dives. Without this, the cached
+  // narrative in impact_deep_dives keeps citing edges that no longer exist
+  // — a "stale dive" UX bug surfaced in the Impact_Coherence_Report. Re-run
+  // of Goals + Impact will trigger fresh dives on demand from the UI.
+  const ddResult = db.prepare('DELETE FROM impact_deep_dives').run();
+  if (ddResult.changes > 0) {
+    console.log(`[impact] cleared ${result.changes} impacts and cascaded ${ddResult.changes} cached deep dives`);
+  }
   analysisStatus.totalImpacts = 0;
   return result.changes;
 }
@@ -692,6 +895,8 @@ interface ImpactDbRow {
   created_at: string;
   gio_services: string;
   dds_entities: string;
+  citations: string;
+  evidence_chain?: string;
 }
 
 // ─── Aggregation ─────────────────────────────────────────────────────────────
@@ -729,6 +934,28 @@ export function aggregateImpacts(rows: ProjectImpact[]): ProjectImpact[] {
 
     const distinctSources = new Set(arr.map(r => r.sourceProjectId));
 
+    // Keep explanations, citationsByExplanation, impactTypeByExplanation,
+    // severityByExplanation in lock-step: each non-empty explanation gets its
+    // metadata at the same index. Primary goes first. This is what lets the
+    // UI render per-message badges (impact_type + severity) and per-message
+    // citation popovers correctly aligned to their originating raw row.
+    const ordered = [primary, ...arr.filter(r => r.id !== primary.id)];
+    const explanations: string[] = [];
+    const citationsByExplanation: NonNullable<ProjectImpact['citations']>[] = [];
+    const impactTypeByExplanation: string[] = [];
+    const severityByExplanation: string[] = [];
+    const gioServicesByExplanation: string[][] = [];
+    const ddsEntitiesByExplanation: string[][] = [];
+    for (const r of ordered) {
+      if (!r.explanation) continue;
+      explanations.push(r.explanation);
+      citationsByExplanation.push(r.citations ?? []);
+      impactTypeByExplanation.push(r.impactType);
+      severityByExplanation.push(r.severity);
+      gioServicesByExplanation.push(r.gioServices ?? []);
+      ddsEntitiesByExplanation.push(r.ddsEntities ?? []);
+    }
+
     out.push({
       id: primary.id,
       sourceProjectId: primary.sourceProjectId,
@@ -741,9 +968,16 @@ export function aggregateImpacts(rows: ProjectImpact[]): ProjectImpact[] {
       createdAt: primary.createdAt,
       gioServices: uniqSorted(arr.flatMap(r => r.gioServices ?? [])),
       ddsEntities: uniqSorted(arr.flatMap(r => r.ddsEntities ?? [])),
+      citations: primary.citations ?? [],
+      evidenceChain: arr.flatMap(r => r.evidenceChain ?? []),
       impactTypes: uniqSorted(arr.map(r => r.impactType)),
       directions: uniqSorted(arr.map(r => r.direction)),
-      explanations: arr.map(r => r.explanation).filter(Boolean),
+      explanations,
+      citationsByExplanation,
+      impactTypeByExplanation,
+      severityByExplanation,
+      gioServicesByExplanation,
+      ddsEntitiesByExplanation,
       count: arr.length,
       bidirectional: distinctSources.size > 1,
     });
@@ -765,6 +999,39 @@ function mapImpactRow(row: ImpactDbRow): ProjectImpact {
   try {
     parsedDds = row.dds_entities ? JSON.parse(row.dds_entities) : [];
   } catch { /* ignore */ }
+  // Citations are stored without file_name (LLM doesn't get a stable one). We
+  // enrich at read time so the popover always shows the human-readable name
+  // currently in documents_cache, not a snapshot from generation time.
+  let parsedCitations: { doc_url: string; file_name: string; snippet: string }[] = [];
+  try {
+    if (row.citations) {
+      const raw = JSON.parse(row.citations) as { doc_url?: string; snippet?: string; file_name?: string }[];
+      if (Array.isArray(raw)) {
+        parsedCitations = raw
+          .filter(c => c && typeof c.doc_url === 'string' && typeof c.snippet === 'string')
+          .map(c => ({ doc_url: c.doc_url!, snippet: c.snippet!, file_name: c.file_name || '' }));
+      }
+    }
+  } catch { /* ignore */ }
+
+  if (parsedCitations.length > 0) {
+    const urls = parsedCitations.map(c => c.doc_url);
+    const nameByUrl = getFileNamesForUrls(urls);
+    parsedCitations = parsedCitations.map(c => ({
+      ...c,
+      file_name: c.file_name || nameByUrl.get(c.doc_url) || '',
+    }));
+  }
+
+  // Onda 4: parse evidence_chain so the API layer can synthesize fallback
+  // citations from goal claims when the LLM left `citations` empty.
+  let parsedChain: { goal_id: number; claim_idx?: number; relation_idx?: number; source: 'claim' | 'relation' | 'free' }[] = [];
+  try {
+    if (row.evidence_chain) {
+      const raw = JSON.parse(row.evidence_chain);
+      if (Array.isArray(raw)) parsedChain = raw;
+    }
+  } catch { /* ignore */ }
 
   return {
     id: row.id,
@@ -778,6 +1045,8 @@ function mapImpactRow(row: ImpactDbRow): ProjectImpact {
     createdAt: row.created_at,
     gioServices: parsedGio,
     ddsEntities: parsedDds,
+    citations: parsedCitations,
+    evidenceChain: parsedChain,
   };
 }
 

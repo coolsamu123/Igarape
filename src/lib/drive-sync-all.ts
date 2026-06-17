@@ -12,6 +12,7 @@ import pLimit from 'p-limit';
 import { getDb } from './db';
 import {
   DRIVE_LOCAL_ROOT,
+  discoverAndAddProjectFromDrive,
   downloadFile,
   extractDriveId,
   getDriveClient,
@@ -177,11 +178,26 @@ export async function runSyncAll(): Promise<void> {
     throw new Error('Another Drive operation is in progress (scheduled cycle). Try again in a moment.');
   }
 
+  // Discovery pass: if app_settings.discovery_root is set, scan that Drive
+  // folder and attach link_folder to every existing project whose ID matches a
+  // subfolder name. Runs in link-only mode so we don't spawn stub project rows
+  // for unrelated folders. Failures are logged but never block the actual sync.
+  const db = getDb();
+  try {
+    const root = db.prepare("SELECT value FROM app_settings WHERE key = 'discovery_root'").get() as { value: string } | undefined;
+    if (root?.value) {
+      console.log('[sync-all] running discovery against', root.value);
+      const result = await discoverAndAddProjectFromDrive(root.value, { createMissing: false });
+      console.log(`[sync-all] discovery: scanned=${result.scannedFolders} linked=${result.linked.length} unmatched=${result.unmatched.length}`);
+    }
+  } catch (err) {
+    console.warn('[sync-all] discovery pass failed (continuing with current links):', err instanceof Error ? err.message : err);
+  }
+
   // Read fresh from DB: every project (deduped by latest id) that has at least
   // one drive.google.com URL in its link columns. Sequential dedupe matches
   // /api/drive/projects so what the user sees in the table is exactly what we
   // sync.
-  const db = getDb();
   const rows = db.prepare(`
     SELECT p.project_id, p.name, p.link_folder, p.link_positions, p.link_cioo
     FROM projects p

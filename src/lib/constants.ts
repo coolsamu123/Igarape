@@ -26,6 +26,19 @@ export const DDS_COLORS: Record<string, string> = {
 
 export const DEFAULT_COLOR = '#ff6b6b';
 
+// ─── Severity Colors ─────────────────────────────────────────────────────────
+// Cool-low palette: keeps the heat metaphor for high/medium (red → amber) and
+// uses a saturated cyan for low so it actually shows up on the dark background
+// instead of the previous unreadable gray.
+
+export const SEVERITY_COLORS: Record<string, string> = {
+  high: '#ef4444',    // red-500
+  medium: '#fbbf24',  // amber-400
+  low: '#22d3ee',     // cyan-400
+};
+
+export const SEVERITY_FALLBACK = '#6b7280';  // gray for unknown / empty severity
+
 // ─── Gate Order & Colors ─────────────────────────────────────────────────────
 
 export const GATE_ORDER = [

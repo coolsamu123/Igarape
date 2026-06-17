@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { getDDSColor } from '@/lib/constants';
+import { SourcePopover, type SourceRef } from './SourcePopover';
 
 // ─── Data shapes (mirror /api/impact/project/evidence response) ──────────────
 
@@ -80,6 +81,11 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
   const [loading, setLoading] = useState(true);
   const [openDocUrl, setOpenDocUrl] = useState<string | null>(null);
 
+  // Set of "<kind>:<target>" keys that already have a cached deep-dive on the
+  // server. Used to enable the per-button "Regenerate" affordance without each
+  // button having to probe independently.
+  const [cachedDeepDives, setCachedDeepDives] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     if (!projectId) return;
     setLoading(true);
@@ -92,6 +98,22 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
       })
       .then(json => { setData(json); setLoading(false); })
       .catch(err => { setError(err.message); setLoading(false); });
+  }, [projectId]);
+
+  // Probe the deep-dive cache once per project. Cheap GET, no LLM call.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    fetch(`/api/impact/project/deep-dive?projectId=${encodeURIComponent(projectId)}`)
+      .then(r => r.ok ? r.json() : { items: [] })
+      .then((json: { items?: Array<{ kind: string; target: string }> }) => {
+        if (cancelled) return;
+        const set = new Set<string>();
+        for (const it of json.items || []) set.add(`${it.kind}:${it.target}`);
+        setCachedDeepDives(set);
+      })
+      .catch(() => { /* probe failure is non-fatal; button just stays disabled */ });
+    return () => { cancelled = true; };
   }, [projectId]);
 
   const padCls = compact ? 'p-3' : 'p-4';
@@ -252,6 +274,7 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
                 kind={t.kind}
                 target={t.target}
                 compact={compact}
+                hasCachedResult={cachedDeepDives.has(`${t.kind}:${t.target}`)}
               />
             ))}
           </div>
@@ -263,11 +286,19 @@ export default function EvidencePanel({ projectId, highlight = null, compact = f
 
 // ─── Deep dive button (lazy-loads, caches via backend) ───────────────────────
 
+interface DeepDiveSource {
+  id: number;
+  doc_url: string;
+  file_name: string;
+  snippet: string;
+}
+
 interface DeepDiveResponse {
   projectId: string;
   kind: DeepDiveKind;
   target: string;
   responseMd: string;
+  sources: DeepDiveSource[];
   llmProvider: string;
   llmModel: string;
   generatedAt: string;
@@ -275,12 +306,18 @@ interface DeepDiveResponse {
   cached: boolean;
 }
 
-export function DeepDiveButton({ projectId, kind, target, compact }: { projectId: string; kind: DeepDiveKind; target: string; compact: boolean }) {
+export function DeepDiveButton({ projectId, kind, target, compact, hasCachedResult = false }: { projectId: string; kind: DeepDiveKind; target: string; compact: boolean; hasCachedResult?: boolean }) {
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [response, setResponse] = useState<DeepDiveResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  // Tracks whether a cached deep-dive is known to exist server-side.
+  // Initialised from the parent probe, flips to true after any successful run.
+  const [cacheExists, setCacheExists] = useState(hasCachedResult);
+
+  // Reflect probe updates from the parent (e.g. project switch).
+  useEffect(() => { setCacheExists(hasCachedResult); }, [hasCachedResult]);
 
   // Tick a loading timer so the user has visual progress on the long LLM call.
   useEffect(() => {
@@ -290,12 +327,7 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
     return () => clearInterval(id);
   }, [state]);
 
-  const trigger = useCallback(async () => {
-    if (state === 'loading') return;
-    if (state === 'done' && response) {
-      setOpen(o => !o);
-      return;
-    }
+  const runFetch = useCallback(async (force: boolean) => {
     setState('loading');
     setError(null);
     setOpen(true);
@@ -304,17 +336,33 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
       const res = await fetch('/api/impact/project/deep-dive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, kind, target }),
+        body: JSON.stringify({ projectId, kind, target, force }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Deep dive failed');
       setResponse(data as DeepDiveResponse);
       setState('done');
+      setCacheExists(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
       setState('error');
     }
-  }, [projectId, kind, target, state, response]);
+  }, [projectId, kind, target]);
+
+  const trigger = useCallback(async () => {
+    if (state === 'loading') return;
+    if (state === 'done' && response) {
+      setOpen(o => !o);
+      return;
+    }
+    await runFetch(false);
+  }, [state, response, runFetch]);
+
+  const regenerate = useCallback(async () => {
+    if (state === 'loading') return;
+    if (!cacheExists) return;  // Disabled until a cached row is known to exist.
+    await runFetch(true);
+  }, [state, cacheExists, runFetch]);
 
   const kindLabel = kind === 'gio' ? 'GIO' : 'DDS';
 
@@ -354,6 +402,29 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
         </span>
       </button>
 
+      {/* Regenerate row — visible always, enabled only when a cached row is
+          known to exist server-side (initial probe) or has been created in
+          this session by a successful run. */}
+      <div className="flex justify-end px-2 py-1 bg-surface-deep/40 border-x border-b border-line/40">
+        <button
+          type="button"
+          onClick={regenerate}
+          disabled={!cacheExists || state === 'loading'}
+          title={
+            !cacheExists
+              ? 'Regenerate will be enabled once a deep dive has been generated and cached.'
+              : 'Force a fresh LLM run and overwrite the cached result.'
+          }
+          className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${
+            !cacheExists || state === 'loading'
+              ? 'text-ink-muted/60 cursor-not-allowed'
+              : 'text-fuchsia-300 hover:text-fuchsia-200 cursor-pointer'
+          }`}
+        >
+          ↻ Regenerate
+        </button>
+      </div>
+
       {open && (
         <div className="bg-surface-deep/70 border border-t-0 border-line rounded-b-lg px-3 py-2.5">
           {state === 'loading' && (
@@ -366,31 +437,7 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
           )}
           {state === 'done' && response && (
             <>
-              <div className={`prose-deep-dive ${compact ? 'text-[11px]' : 'text-xs'} text-ink-2 leading-relaxed`}>
-                <ReactMarkdown
-                  components={{
-                    h2: ({ children }) => (
-                      <div className="text-[11px] font-bold text-ink-1 uppercase tracking-wider mt-3 mb-1.5 first:mt-0">
-                        {children}
-                      </div>
-                    ),
-                    h3: ({ children }) => (
-                      <div className="text-[11px] font-semibold text-ink-2 mt-2 mb-1">{children}</div>
-                    ),
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc pl-5 space-y-0.5 mb-2">{children}</ul>,
-                    ol: ({ children }) => <ol className="list-decimal pl-5 space-y-0.5 mb-2">{children}</ol>,
-                    li: ({ children }) => <li>{children}</li>,
-                    strong: ({ children }) => <strong className="text-ink-1">{children}</strong>,
-                    em: ({ children }) => <em className="text-ink-3">{children}</em>,
-                    code: ({ children }) => (
-                      <code className="font-mono bg-surface-2/70 text-emerald-300 px-1 rounded">{children}</code>
-                    ),
-                  }}
-                >
-                  {response.responseMd}
-                </ReactMarkdown>
-              </div>
+              <DeepDiveBody response={response} compact={compact} />
               <div className="text-[10px] text-ink-muted mt-3 pt-2 border-t border-line font-mono">
                 {response.llmProvider}/{response.llmModel} · {response.durationMs ? `${(response.durationMs / 1000).toFixed(1)}s` : '—'} · generated {response.generatedAt.slice(0, 10)}
               </div>
@@ -401,6 +448,105 @@ export function DeepDiveButton({ projectId, kind, target, compact }: { projectId
     </div>
   );
 }
+
+// ─── Deep dive body: section-by-section render with per-section popovers ────
+
+interface DeepDiveSection {
+  title: string;       // raw heading text without the leading "## "
+  body: string;        // markdown body with the `_Sources: [n]_` line stripped
+  sourceIds: number[]; // ids referenced by the section's _Sources: [n,...]_ line
+}
+
+// Splits a deep-dive response by `## ` headings, extracts each section's
+// trailing `_Sources: [n, n, ...]_` line, and strips that line out of the
+// body so it isn't rendered as raw text. The "## Sources" section itself is
+// dropped — the source list is rendered separately as popovers, not as a
+// trailing markdown list.
+function splitDeepDiveSections(markdown: string): DeepDiveSection[] {
+  const sections: DeepDiveSection[] = [];
+  // Split on lines that begin with "## " (preserve order). The first chunk
+  // (before any heading) is rare but possible — skip it to avoid blank cards.
+  const parts = markdown.split(/^##\s+/m);
+  for (let i = 1; i < parts.length; i++) {
+    const chunk = parts[i];
+    const newlineAt = chunk.indexOf('\n');
+    const title = (newlineAt === -1 ? chunk : chunk.slice(0, newlineAt)).trim();
+    let body = newlineAt === -1 ? '' : chunk.slice(newlineAt + 1);
+    if (title.toLowerCase() === 'sources') continue;
+
+    // Match `_Sources: [n, n, ...]_`. Tolerant on whitespace and trailing
+    // punctuation; the LLM sometimes wraps it in extra markdown emphasis.
+    const sourceLineRe = /_+\s*Sources:\s*\[([^\]]*)\]\s*_+/i;
+    const m = body.match(sourceLineRe);
+    const sourceIds: number[] = [];
+    if (m) {
+      const nums = m[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n));
+      sourceIds.push(...nums);
+      body = body.replace(sourceLineRe, '').trimEnd();
+    }
+    sections.push({ title, body: body.trim(), sourceIds });
+  }
+  return sections;
+}
+
+function DeepDiveBody({ response, compact }: { response: DeepDiveResponse; compact: boolean }) {
+  const sections = useMemo(() => splitDeepDiveSections(response.responseMd), [response.responseMd]);
+  const sourceById = useMemo(() => {
+    const m = new Map<number, DeepDiveSource>();
+    for (const s of response.sources) m.set(s.id, s);
+    return m;
+  }, [response.sources]);
+
+  // Fallback: if the model skipped the `## ` structure entirely (older cached
+  // responses or a malformed run), fall back to the original single-blob render.
+  if (sections.length === 0) {
+    return (
+      <div className={`prose-deep-dive ${compact ? 'text-[11px]' : 'text-xs'} text-ink-2 leading-relaxed`}>
+        <ReactMarkdown components={deepDiveMarkdownComponents}>
+          {response.responseMd}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`prose-deep-dive ${compact ? 'text-[11px]' : 'text-xs'} text-ink-2 leading-relaxed`}>
+      {sections.map((sec, i) => {
+        const refs: SourceRef[] = sec.sourceIds
+          .map(id => sourceById.get(id))
+          .filter((s): s is DeepDiveSource => Boolean(s))
+          .map(s => ({ doc_url: s.doc_url, file_name: s.file_name, snippet: s.snippet }));
+        return (
+          <div key={i} className="mt-3 first:mt-0">
+            <div className="flex items-center text-[11px] font-bold text-ink-1 uppercase tracking-wider mb-1.5">
+              <span>{sec.title}</span>
+              {refs.length > 0 && <SourcePopover sources={refs} label={`Sources for "${sec.title}"`} />}
+            </div>
+            <ReactMarkdown components={deepDiveMarkdownComponents}>{sec.body}</ReactMarkdown>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const deepDiveMarkdownComponents = {
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <div className="text-[11px] font-bold text-ink-1 uppercase tracking-wider mt-3 mb-1.5 first:mt-0">{children}</div>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <div className="text-[11px] font-semibold text-ink-2 mt-2 mb-1">{children}</div>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0">{children}</p>,
+  ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc pl-5 space-y-0.5 mb-2">{children}</ul>,
+  ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal pl-5 space-y-0.5 mb-2">{children}</ol>,
+  li: ({ children }: { children?: React.ReactNode }) => <li>{children}</li>,
+  strong: ({ children }: { children?: React.ReactNode }) => <strong className="text-ink-1">{children}</strong>,
+  em: ({ children }: { children?: React.ReactNode }) => <em className="text-ink-3">{children}</em>,
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="font-mono bg-surface-2/70 text-emerald-300 px-1 rounded">{children}</code>
+  ),
+};
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 

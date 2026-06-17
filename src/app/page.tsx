@@ -11,7 +11,7 @@ import DetailView from '@/components/DetailView';
 import ImpactView from '@/components/ImpactView';
 import GoalsView from '@/components/GoalsView';
 import DriveView from '@/components/DriveView';
-import StromView from '@/components/StromView';
+import StromView from '@/components/StromArchitecture';
 import ProjectUniverseView from '@/components/ProjectUniverseView';
 import LoadingState from '@/components/LoadingState';
 import type { ViewType } from '@/lib/types';

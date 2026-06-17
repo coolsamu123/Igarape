@@ -5,20 +5,6 @@ import { useProjectContext } from '@/context/ProjectContext';
 import type { DrivePanelState } from '@/lib/drive-panel-state';
 import type { ProjectSyncStatus } from '@/lib/drive-sync-all';
 
-// ─── Schedule presets ───────────────────────────────────────────────────────
-
-const SCHEDULE_PRESETS: { label: string; cron: string }[] = [
-  { label: 'Every 5 minutes',   cron: '*/5 * * * *' },
-  { label: 'Every 10 minutes',  cron: '*/10 * * * *' },
-  { label: 'Every 15 minutes',  cron: '*/15 * * * *' },
-  { label: 'Every 30 minutes',  cron: '*/30 * * * *' },
-  { label: 'Every hour',        cron: '0 * * * *' },
-  { label: 'Every 2 hours',     cron: '0 */2 * * *' },
-  { label: 'Every 4 hours',     cron: '0 */4 * * *' },
-  { label: '3× per day (06h, 14h, 22h)', cron: '0 6,14,22 * * *' },
-  { label: 'Once per day at midnight',   cron: '0 0 * * *' },
-];
-
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ExplorerRow {
@@ -197,7 +183,6 @@ function StatusHeader({
 }) {
   const counts = state?.counts;
   const llm = state?.todayLLM;
-  const sched = state?.schedule;
   const isRunning = state?.pipeline.isRunning ?? false;
 
   return (
@@ -230,15 +215,8 @@ function StatusHeader({
           <Stat label="with impacts" value={counts?.withImpacts} tone="impacts" />
         </div>
 
-        {/* Schedule + LLM */}
+        {/* LLM */}
         <div className="flex items-center gap-4 text-xs text-ink-muted">
-          {sched && (
-            <span title={`Cron: ${sched.full.cron}`}>
-              <span className="text-ink-faint">⏱</span>{' '}
-              <span className="text-ink-3">{describeCron(sched.full.cron)}</span>
-              {!sched.schedulerEnabled && <span className="ml-1 text-yellow-500">(off)</span>}
-            </span>
-          )}
           {llm && (
             <span title={`Today: ${llm.total}/${llm.cap} LLM calls`}>
               <span className="text-ink-faint">⚡</span>{' '}
@@ -281,23 +259,8 @@ function Stat({ label, value, tone }: { label: string; value: number | undefined
 function SourcesSection({ state }: { state: DrivePanelState | null }) {
   return (
     <div className="space-y-3">
-      <CollapsibleCard
-        title="Watched Drive Roots"
-        subtitle={`${state?.watchRoots.length ?? 0} configured · re-scanned on schedule`}
-        defaultOpen={!state?.watchRoots.length}
-      >
-        <WatchedRoots state={state} />
-      </CollapsibleCard>
-
       <CollapsibleCard title="Add a Drive source" subtitle="Discover a new project or attach a link to an existing one">
         <AddSource />
-      </CollapsibleCard>
-
-      <CollapsibleCard
-        title="Discovery Schedule"
-        subtitle={state?.schedule ? `${describeCron(state.schedule.full.cron)} · source: ${state.schedule.full.source}` : '—'}
-      >
-        <ScheduleEditor state={state} />
       </CollapsibleCard>
 
       <CollapsibleCard title="Upload CDIO Gating Pre-review Excel" subtitle="Replace base project metadata from the 'CDIO internal committee' sheet">
@@ -333,114 +296,6 @@ function CollapsibleCard({ title, subtitle, defaultOpen = false, children }: {
         <span className="text-ink-muted text-sm">{open ? '▾' : '▸'}</span>
       </button>
       {open && <div className="px-5 pb-5 pt-1 border-t border-line">{children}</div>}
-    </div>
-  );
-}
-
-// ─── Watched Roots editor ───────────────────────────────────────────────────
-
-function WatchedRoots({ state }: { state: DrivePanelState | null }) {
-  const roots = state?.watchRoots ?? [];
-  const [newUrl, setNewUrl] = useState('');
-  const [newLabel, setNewLabel] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleAdd = async () => {
-    if (!newUrl.trim()) return;
-    setAdding(true);
-    setError('');
-    try {
-      const res = await fetch('/api/auto-discovery', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: newUrl.trim(), label: newLabel.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
-      setNewUrl(''); setNewLabel('');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed');
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  const handleToggle = (id: number, enabled: boolean) =>
-    fetch('/api/auto-discovery/toggle', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, enabled }),
-    });
-
-  const handleDelete = (id: number) => {
-    if (!confirm('Remove this watched root?')) return;
-    fetch(`/api/auto-discovery?id=${id}`, { method: 'DELETE' });
-  };
-
-  return (
-    <div className="pt-3">
-      <div className="space-y-2 mb-3">
-        {roots.length === 0 ? (
-          <div className="text-xs text-ink-muted italic">No watched roots yet. Add one below.</div>
-        ) : roots.map(r => (
-          <div key={r.id} className="bg-surface-deep border border-line rounded-lg p-3 flex items-center gap-3">
-            <input
-              type="checkbox" checked={r.enabled}
-              onChange={e => handleToggle(r.id, e.target.checked)}
-              className="cursor-pointer"
-              title={r.enabled ? 'Disable' : 'Enable'}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm text-ink-2 font-medium truncate">
-                {r.label || <span className="text-ink-muted italic">(no label)</span>}
-              </div>
-              <a href={r.url} target="_blank" rel="noopener noreferrer"
-                 className="text-[11px] text-accent-text2 hover:underline font-mono truncate block max-w-full">
-                {r.url}
-              </a>
-              <div className="text-[11px] text-ink-muted mt-0.5">
-                Added projects: <span className="text-ink-4 font-mono">{r.addedCount}</span>
-                {' · '}Last: {r.lastRunAt ? (
-                  <>
-                    <span className="text-ink-4">{new Date(r.lastRunAt).toLocaleString()}</span>
-                    {r.lastRunStatus && (
-                      <span className={`ml-1 ${r.lastRunStatus === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                        ({r.lastRunStatus})
-                      </span>
-                    )}
-                  </>
-                ) : <span className="text-ink-faint">never</span>}
-              </div>
-            </div>
-            <button
-              onClick={() => handleDelete(r.id)}
-              className="px-2 py-1 text-xs rounded bg-red-900/30 text-red-400 border border-red-800 hover:bg-red-900/50 transition-colors"
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-2 flex-wrap">
-        <input
-          type="text" placeholder="Label (optional)"
-          value={newLabel} onChange={e => setNewLabel(e.target.value)}
-          className="w-48 bg-surface-deep border border-line text-ink-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent-border"
-        />
-        <input
-          type="text" placeholder="https://drive.google.com/drive/folders/..."
-          value={newUrl} onChange={e => setNewUrl(e.target.value)}
-          className="flex-1 min-w-[280px] bg-surface-deep border border-line text-ink-2 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent-border"
-        />
-        <button
-          onClick={handleAdd} disabled={!newUrl.trim() || adding}
-          className="px-5 py-2 rounded-lg bg-purple-700 text-white text-sm font-semibold hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {adding ? 'Adding…' : 'Watch root'}
-        </button>
-      </div>
-      {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
     </div>
   );
 }
@@ -569,90 +424,6 @@ function AddSource() {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── Schedule Editor ────────────────────────────────────────────────────────
-
-function ScheduleEditor({ state }: { state: DrivePanelState | null }) {
-  const [advanced, setAdvanced] = useState(false);
-  const [cron, setCron] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    if (state?.schedule.full.cron) {
-      setCron(state.schedule.full.cron);
-      if (!SCHEDULE_PRESETS.some(p => p.cron === state.schedule.full.cron)) setAdvanced(true);
-    }
-  }, [state?.schedule.full.cron]);
-
-  const save = async (newCron: string | null) => {
-    setSaving(true); setError(''); setSaved(false);
-    try {
-      const res = await fetch('/api/auto-discovery/schedule', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fullCron: newCron }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="pt-3">
-      <div className="flex items-center gap-2 mb-3 text-xs text-ink-muted">
-        <label className="flex items-center gap-1.5 cursor-pointer">
-          <input type="checkbox" checked={advanced} onChange={e => setAdvanced(e.target.checked)} className="cursor-pointer" />
-          Advanced (raw cron)
-        </label>
-        {state?.schedule && !state.schedule.schedulerEnabled && (
-          <span className="text-yellow-400">scheduler disabled by env</span>
-        )}
-      </div>
-      <div className="flex gap-2 flex-wrap items-center">
-        {advanced ? (
-          <input
-            type="text" value={cron} onChange={e => setCron(e.target.value)}
-            placeholder="*/10 * * * *"
-            className="flex-1 min-w-[200px] bg-surface-deep border border-line text-ink-2 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-accent-border"
-          />
-        ) : (
-          <select
-            value={SCHEDULE_PRESETS.some(p => p.cron === cron) ? cron : ''}
-            onChange={e => setCron(e.target.value)}
-            className="flex-1 min-w-[240px] bg-surface-deep border border-line text-ink-2 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-accent-border cursor-pointer"
-          >
-            {!SCHEDULE_PRESETS.some(p => p.cron === cron) && cron && (
-              <option value="" disabled>Custom: {cron} — switch to Advanced</option>
-            )}
-            {SCHEDULE_PRESETS.map(p => <option key={p.cron} value={p.cron}>{p.label}</option>)}
-          </select>
-        )}
-        <button
-          onClick={() => save(cron)}
-          disabled={saving || !cron.trim() || cron === state?.schedule.full.cron}
-          className="px-4 py-1.5 rounded bg-accent-hover text-white text-sm font-semibold hover:bg-accent disabled:opacity-40"
-        >{saving ? 'Saving…' : 'Apply'}</button>
-        {state?.schedule.full.source !== 'default' && (
-          <button
-            onClick={() => save(null)}
-            disabled={saving}
-            className="px-3 py-1.5 rounded bg-surface-2 text-ink-3 text-xs font-medium border border-line-strong hover:bg-surface-3 disabled:opacity-40"
-            title="Clear DB override and use env/default"
-          >Reset</button>
-        )}
-      </div>
-      {error && <div className="mt-2 text-[11px] text-red-400">{error}</div>}
-      {saved && <div className="mt-2 text-[11px] text-green-400">Schedule applied.</div>}
     </div>
   );
 }
@@ -847,22 +618,6 @@ function ProjectExplorer({
     return () => clearInterval(id);
   }, [syncing, load]);
 
-  // Copy-link-to-clipboard: track which row was just copied so we can flash a ✓.
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copyLink = useCallback(async (projectId: string, link: string) => {
-    if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopiedId(projectId);
-      setTimeout(() => {
-        setCopiedId(curr => (curr === projectId ? null : curr));
-      }, 1500);
-    } catch {
-      // Clipboard API failed (e.g. insecure context) — fall back to opening a new tab.
-      window.open(link, '_blank', 'noopener,noreferrer');
-    }
-  }, []);
-
   // Auto-scroll the currently downloading project into view so the user sees progress.
   const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
   useEffect(() => {
@@ -1009,7 +764,7 @@ function ProjectExplorer({
               <ColumnHeader label="Impacts" col="impactCount"     sort={sort} onSort={toggleSort} align="right"
                 filter={<FilterSelect value={filters.impacts} onChange={v => updateFilter('impacts', v as ColumnFilters['impacts'])}
                   options={[{ value: 'any', label: 'Any' }, { value: 'with', label: '>0' }, { value: 'without', label: '0' }]} />} />
-              <ColumnHeader label="Drive"   col="linkFolder"      sort={sort} onSort={toggleSort} align="center"
+              <ColumnHeader label="GDrive"  col="linkFolder"      sort={sort} onSort={toggleSort}
                 filter={<FilterSelect value={filters.drive} onChange={v => updateFilter('drive', v as ColumnFilters['drive'])}
                   options={[{ value: 'any', label: 'Any' }, { value: 'yes', label: 'Linked' }, { value: 'no', label: 'None' }]} />} />
               <ColumnHeader label="Local"   col="localPath"       sort={sort} onSort={toggleSort}
@@ -1089,19 +844,17 @@ function ProjectExplorer({
                     {r.impactCount}
                   </span>
                 </td>
-                <td className="px-2 py-1.5 text-center">
+                <td className="px-2 py-1.5 font-mono text-[10px] max-w-[280px]">
                   {r.linkFolder ? (
-                    <button
-                      onClick={() => copyLink(r.projectId, r.linkFolder.split(' ')[0])}
-                      title={copiedId === r.projectId ? 'Copied!' : `Copy link\n${r.linkFolder.split(' ')[0]}`}
-                      className={`inline-flex items-center justify-center w-6 h-6 rounded transition-colors ${
-                        copiedId === r.projectId
-                          ? 'text-green-400'
-                          : 'text-accent-text2 hover:bg-surface-2 hover:text-accent-text'
-                      }`}
+                    <a
+                      href={r.linkFolder.split(' ')[0]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={r.linkFolder.split(' ')[0]}
+                      className="text-accent-text2 hover:text-accent-text hover:underline truncate inline-block max-w-full align-bottom"
                     >
-                      {copiedId === r.projectId ? '✓' : '⧉'}
-                    </button>
+                      {r.linkFolder.split(' ')[0]}
+                    </a>
                   ) : (
                     <span className="text-ink-faint">—</span>
                   )}
@@ -1218,13 +971,5 @@ function FilterSelect({ value, onChange, options }: {
       {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   );
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function describeCron(cron: string): string {
-  const preset = SCHEDULE_PRESETS.find(p => p.cron === cron);
-  if (preset) return preset.label;
-  return cron;
 }
 

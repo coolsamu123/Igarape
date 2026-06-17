@@ -13,7 +13,10 @@ import {
 // Bump this when the prompt schema changes in a way that requires
 // re-analysing existing successful rows. The pipeline skip-logic compares
 // against project_goals.prompt_version.
-export const GOALS_PROMPT_VERSION = 2;
+// Bumped to 4 in Onda 3: prompt now also asks for atomic `impact_claims`
+// (with target_kind/target/role/severity/impact_type/evidence) and structured
+// `timeline_struct`. All rows with version<4 get re-analyzed on next run.
+export const GOALS_PROMPT_VERSION = 4;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -139,7 +142,7 @@ MONTHS REVIEWED: ${project.monthFolders.join(', ')}`;
   return prompt;
 }
 
-function parseGoalsResponse(text: string): Record<string, string> {
+function parseGoalsResponse(text: string): Record<string, unknown> {
   try {
     let clean = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const start = clean.indexOf('{');
@@ -151,6 +154,210 @@ function parseGoalsResponse(text: string): Record<string, string> {
   } catch {
     return {};
   }
+}
+
+// Onda 2: validate / sanitize the new structured arrays the prompt asks for.
+// These run AFTER parseGoalsResponse — they don't reject the whole row, they
+// just drop malformed entries silently. Empty/missing inputs return [].
+
+const RELATION_KINDS = new Set([
+  'predecessor', 'successor', 'parallel',
+  'blocked_by', 'blocking', 'replaces', 'extends',
+  'shares_platform', 'shares_vendor',
+]);
+
+interface ProjectRelation {
+  project_id: string;
+  kind: string;
+  relation: string;
+  source_file: string;
+  evidence_quote: string;
+  confidence: 'stated' | 'inferred';
+}
+
+function sanitizeProjectRelations(raw: unknown, ownProjectId: string): ProjectRelation[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: ProjectRelation[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const pidRaw = String(r.project_id || '').trim();
+    const pidMatch = pidRaw.match(/^(PRJ[\s\-_]*\d+)([A-Z]{0,4})$/i);
+    if (!pidMatch) continue;
+    const pid = `PRJ${pidMatch[1].replace(/[^\d]/g, '')}${(pidMatch[2] || '').toUpperCase()}`;
+    if (pid === ownProjectId || pid === ownProjectId.replace(/[^\dPRJ]/gi, '')) continue;
+    const kind = String(r.kind || '').toLowerCase().trim();
+    if (!RELATION_KINDS.has(kind)) continue;
+    const evidence = String(r.evidence_quote || '').trim();
+    if (evidence.length < 10) continue; // require real evidence
+    const dedupeKey = `${pid}|${kind}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push({
+      project_id: pid,
+      kind,
+      relation: String(r.relation || '').slice(0, 100).trim(),
+      source_file: String(r.source_file || '').trim(),
+      evidence_quote: evidence.slice(0, 250),
+      confidence: r.confidence === 'stated' ? 'stated' : 'inferred',
+    });
+  }
+  return out;
+}
+
+interface OutOfScope {
+  topic: string;
+  evidence_quote: string;
+  source_file: string;
+}
+
+function sanitizeOutOfScope(raw: unknown): OutOfScope[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: OutOfScope[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const topic = String(r.topic || '').trim();
+    const evidence = String(r.evidence_quote || '').trim();
+    if (topic.length < 3 || evidence.length < 10) continue;
+    const key = topic.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      topic: topic.slice(0, 80),
+      evidence_quote: evidence.slice(0, 250),
+      source_file: String(r.source_file || '').trim(),
+    });
+  }
+  return out;
+}
+
+// Onda 3: atomic impact_claims sanitizer. Rejects rows where:
+//   - target_kind missing or not 'gio'|'dds'
+//   - target not in canonical catalog (catches LLM typos)
+//   - role outside the controlled enum
+//   - evidence_quote shorter than 10 chars (forces real grounding)
+import { isCanonicalTarget, type TargetKind } from './target-catalog';
+
+const CLAIM_ROLES = new Set([
+  'primary_provider', 'downstream_consumer', 'regional_executor', 'risk_owner', 'blocked_by',
+]);
+const CLAIM_IMPACT_TYPES = new Set([
+  'infrastructure_shared', 'platform_shared', 'technology_dependency', 'vendor_shared',
+  'security_dependency', 'organizational', 'regional_rollout', 'integration_required',
+  'timeline_blocking', 'resource_contention',
+]);
+const CLAIM_SEVERITIES = new Set(['high', 'medium', 'low']);
+
+interface ImpactClaim {
+  target_kind: TargetKind;
+  target: string;
+  role: string;
+  severity: string;
+  impact_type: string;
+  evidence_file: string;
+  evidence_quote: string;
+  confidence: 'stated' | 'inferred';
+}
+
+function sanitizeImpactClaims(raw: unknown): ImpactClaim[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: ImpactClaim[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const target_kind = String(r.target_kind || '').toLowerCase();
+    if (target_kind !== 'gio' && target_kind !== 'dds') continue;
+    const target = String(r.target || '').trim();
+    if (!isCanonicalTarget(target_kind, target)) continue;
+    const role = String(r.role || '').toLowerCase();
+    if (!CLAIM_ROLES.has(role)) continue;
+    const severity = String(r.severity || '').toLowerCase();
+    if (!CLAIM_SEVERITIES.has(severity)) continue;
+    const impact_type = String(r.impact_type || '').toLowerCase();
+    if (!CLAIM_IMPACT_TYPES.has(impact_type)) continue;
+    const evidence_quote = String(r.evidence_quote || '').trim();
+    if (evidence_quote.length < 10) continue;
+    // Dedupe by (target_kind, target, role, impact_type) — same target can
+    // have multiple claims with different roles/types but not duplicates.
+    const key = `${target_kind}|${target}|${role}|${impact_type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      target_kind: target_kind as TargetKind,
+      target,
+      role,
+      severity,
+      impact_type,
+      evidence_file: String(r.evidence_file || '').trim(),
+      evidence_quote: evidence_quote.slice(0, 250),
+      confidence: r.confidence === 'stated' ? 'stated' : 'inferred',
+    });
+  }
+  return out;
+}
+
+interface TimelineDep {
+  project_id: string;
+  reason: string;
+  evidence_file: string;
+  evidence_quote: string;
+}
+interface TimelineStruct {
+  gate1_actual: string | null;
+  gate2_target: string | null;
+  go_live_target: string | null;
+  must_complete_before: TimelineDep[];
+  blocked_by: TimelineDep[];
+}
+
+function sanitizeTimeline(raw: unknown): TimelineStruct {
+  const empty: TimelineStruct = {
+    gate1_actual: null, gate2_target: null, go_live_target: null,
+    must_complete_before: [], blocked_by: [],
+  };
+  if (!raw || typeof raw !== 'object') return empty;
+  const r = raw as Record<string, unknown>;
+  const normDate = (v: unknown): string | null => {
+    if (typeof v !== 'string') return null;
+    const s = v.trim();
+    if (!s || s.toLowerCase() === 'null' || s.toLowerCase() === 'n/a' || s.toLowerCase() === 'tbd') return null;
+    return s.slice(0, 20);
+  };
+  const normDeps = (val: unknown): TimelineDep[] => {
+    if (!Array.isArray(val)) return [];
+    const seen = new Set<string>();
+    const list: TimelineDep[] = [];
+    for (const item of val) {
+      if (!item || typeof item !== 'object') continue;
+      const d = item as Record<string, unknown>;
+      const pidRaw = String(d.project_id || '').trim();
+      const m = pidRaw.match(/^(PRJ[\s\-_]*\d+)([A-Z]{0,4})$/i);
+      if (!m) continue;
+      const pid = `PRJ${m[1].replace(/[^\d]/g, '')}${(m[2] || '').toUpperCase()}`;
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      const evidence = String(d.evidence_quote || '').trim();
+      if (evidence.length < 10) continue;
+      list.push({
+        project_id: pid,
+        reason: String(d.reason || '').slice(0, 80).trim(),
+        evidence_file: String(d.evidence_file || '').trim(),
+        evidence_quote: evidence.slice(0, 250),
+      });
+    }
+    return list;
+  };
+  return {
+    gate1_actual: normDate(r.gate1_actual),
+    gate2_target: normDate(r.gate2_target),
+    go_live_target: normDate(r.go_live_target),
+    must_complete_before: normDeps(r.must_complete_before),
+    blocked_by: normDeps(r.blocked_by),
+  };
 }
 
 // ─── Pipeline ───────────────────────────────────────────────────────────────
@@ -231,8 +438,16 @@ async function analyzeProject(project: ScannedProject): Promise<void> {
   ].filter(Boolean).join('\n');
   const mentionedProjectsArr = extractMentionedProjects(mentionedSources, project.projectId);
 
-  const txt = (k: string): string => (typeof parsed[k] === 'string' ? parsed[k] : '');
+  const txt = (k: string): string => (typeof parsed[k] === 'string' ? parsed[k] as string : '');
   const summaryOneLine = txt('summary_one_line').slice(0, 250);
+
+  // Onda 2: structured cross-project signal — validated against enum/length
+  // constraints before persisting.
+  const projectRelations = sanitizeProjectRelations(parsed.project_relations, project.projectId);
+  const outOfScope       = sanitizeOutOfScope(parsed.out_of_scope);
+  // Onda 3: atomic anchored claims + structured timeline.
+  const impactClaims     = sanitizeImpactClaims(parsed.impact_claims);
+  const timelineStruct   = sanitizeTimeline(parsed.timeline_struct);
 
   const freeFormFields = [
     'digital_technologies', 'change_management', 'security_impacts',
@@ -254,9 +469,11 @@ async function analyzeProject(project: ScannedProject): Promise<void> {
       dds_gio_workload, business_apps_cis,
       dds_entities_touched, gio_services_touched,
       tech_tags, vendors, data_classifications, mentioned_projects,
+      project_relations, out_of_scope,
+      impact_claims, timeline_struct,
       prompt_version,
       raw_gemini_response, source_files, status, error_message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
     ON CONFLICT(project_id) DO UPDATE SET
       project_name=excluded.project_name, region=excluded.region, gate=excluded.gate,
       month_folder=excluded.month_folder,
@@ -275,6 +492,10 @@ async function analyzeProject(project: ScannedProject): Promise<void> {
       vendors=excluded.vendors,
       data_classifications=excluded.data_classifications,
       mentioned_projects=excluded.mentioned_projects,
+      project_relations=excluded.project_relations,
+      out_of_scope=excluded.out_of_scope,
+      impact_claims=excluded.impact_claims,
+      timeline_struct=excluded.timeline_struct,
       prompt_version=excluded.prompt_version,
       raw_gemini_response=excluded.raw_gemini_response,
       source_files=excluded.source_files,
@@ -301,6 +522,10 @@ async function analyzeProject(project: ScannedProject): Promise<void> {
     JSON.stringify(vendorsArr),
     JSON.stringify(dataClassArr),
     JSON.stringify(mentionedProjectsArr),
+    JSON.stringify(projectRelations),
+    JSON.stringify(outOfScope),
+    JSON.stringify(impactClaims),
+    JSON.stringify(timelineStruct),
     GOALS_PROMPT_VERSION,
     responseText,
     filesJson,

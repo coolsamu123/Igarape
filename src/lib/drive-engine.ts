@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { classifyFile, pickDuplicatesToSkip } from './file-hygiene';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
@@ -127,7 +128,7 @@ export async function downloadFile(
   drive: ReturnType<typeof google.drive>,
   fileId: string,
   localDir: string
-): Promise<{ name: string; localPath: string; textContent: string } | null> {
+): Promise<{ name: string; localPath: string; textContent: string; webUrl: string } | null> {
   // Get file metadata
   let meta = await drive.files.get({
     fileId,
@@ -158,10 +159,13 @@ export async function downloadFile(
   }
 
   const size = parseInt(meta.data.size || '0', 10);
+  // Per-file deep link used by the citation popover. Resolved against the post-
+  // shortcut `actualId` so shortcuts open the real file, not the shortcut stub.
+  const webUrl = `https://drive.google.com/file/d/${actualId}/view`;
 
   // Skip very large files (>50MB)
   if (size > 50 * 1024 * 1024) {
-    return { name, localPath: '', textContent: `[File too large: ${name} (${(size / 1024 / 1024).toFixed(1)}MB)]` };
+    return { name, localPath: '', textContent: `[File too large: ${name} (${(size / 1024 / 1024).toFixed(1)}MB)]`, webUrl };
   }
 
   // Google Workspace files → export as text
@@ -173,7 +177,7 @@ export async function downloadFile(
     // Skip if already downloaded locally
     if (fs.existsSync(localPath)) {
       const text = exp.ext !== '.png' ? fs.readFileSync(localPath, 'utf-8') : `[Image: ${name}]`;
-      return { name, localPath, textContent: text.slice(0, 30000) };
+      return { name, localPath, textContent: text.slice(0, 30000), webUrl };
     }
 
     const res = await drive.files.export(
@@ -183,7 +187,7 @@ export async function downloadFile(
 
     const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
     fs.writeFileSync(localPath, text, 'utf-8');
-    return { name, localPath, textContent: text.slice(0, 30000) };
+    return { name, localPath, textContent: text.slice(0, 30000), webUrl };
   }
 
   // Text files → download as text
@@ -193,7 +197,7 @@ export async function downloadFile(
 
     if (fs.existsSync(localPath)) {
       const text = fs.readFileSync(localPath, 'utf-8');
-      return { name, localPath, textContent: text.slice(0, 30000) };
+      return { name, localPath, textContent: text.slice(0, 30000), webUrl };
     }
 
     const res = await drive.files.get(
@@ -203,7 +207,7 @@ export async function downloadFile(
 
     const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
     fs.writeFileSync(localPath, text, 'utf-8');
-    return { name, localPath, textContent: text.slice(0, 30000) };
+    return { name, localPath, textContent: text.slice(0, 30000), webUrl };
   }
 
   // Binary files (PDF, DOCX, etc.) → download binary
@@ -212,7 +216,7 @@ export async function downloadFile(
     const localPath = path.join(localDir, safeName);
 
     if (fs.existsSync(localPath)) {
-      return { name, localPath, textContent: `[Binary file: ${name} (${mimeType}, ${(size / 1024).toFixed(0)}KB) — saved locally at ${localPath}]` };
+      return { name, localPath, textContent: `[Binary file: ${name} (${mimeType}, ${(size / 1024).toFixed(0)}KB) — saved locally at ${localPath}]`, webUrl };
     }
 
     const res = await drive.files.get(
@@ -221,11 +225,11 @@ export async function downloadFile(
     );
 
     fs.writeFileSync(localPath, Buffer.from(res.data as ArrayBuffer));
-    return { name, localPath, textContent: `[Binary file: ${name} (${mimeType}, ${(size / 1024).toFixed(0)}KB) — saved locally at ${localPath}]` };
+    return { name, localPath, textContent: `[Binary file: ${name} (${mimeType}, ${(size / 1024).toFixed(0)}KB) — saved locally at ${localPath}]`, webUrl };
   }
 
   // Unknown type
-  return { name, localPath: '', textContent: `[Unsupported file type: ${name} (${mimeType})]` };
+  return { name, localPath: '', textContent: `[Unsupported file type: ${name} (${mimeType})]`, webUrl };
 }
 
 // ─── List files in a folder ─────────────────────────────────────────────────
@@ -288,7 +292,7 @@ async function processUrl(
   url: string,
   projectId: string,
   projectName: string
-): Promise<{ files: { name: string; localPath: string; textContent: string }[] }> {
+): Promise<{ files: { name: string; localPath: string; textContent: string; webUrl: string }[] }> {
   const driveId = extractDriveId(url);
   if (!driveId) return { files: [] };
 
@@ -299,7 +303,7 @@ async function processUrl(
     fs.mkdirSync(localDir, { recursive: true });
   }
 
-  const results: { name: string; localPath: string; textContent: string }[] = [];
+  const results: { name: string; localPath: string; textContent: string; webUrl: string }[] = [];
 
     try {
     const meta = await drive.files.get({
@@ -317,12 +321,30 @@ async function processUrl(
     }
 
     if (mimeType === 'application/vnd.google-apps.folder') {
-      const files = await listFolderFiles(drive, actualId);
+      const allFiles = await listFolderFiles(drive, actualId);
+      // Pre-download hygiene filter: drop deprecated/cross-PRJ files BEFORE
+      // we hit the network. Skipped entries are surfaced to the caller as
+      // synthetic `webUrl='skipped:<reason>'` markers so the cache can record
+      // why we passed on them.
+      const files: typeof allFiles = [];
+      for (const f of allFiles) {
+        const verdict = classifyFile(projectId, f.name);
+        if (verdict.keep) {
+          files.push(f);
+        } else {
+          results.push({
+            name: f.name,
+            localPath: '',
+            textContent: '',
+            webUrl: `skipped:${verdict.reason}:${f.id}`,
+          });
+        }
+      }
       downloadStatus.totalFiles += files.length;
       downloadStatus.phase = 'downloading';
-      
+
       const limit = pLimit(10); // 10 concurrent downloads
-      
+
       const downloadPromises = files.map(f => limit(async () => {
         try {
           const result = await downloadFile(drive, f.id, localDir);
@@ -339,9 +361,9 @@ async function processUrl(
           downloadStatus.skippedFiles++;
         }
       }));
-      
+
       await Promise.all(downloadPromises);
-      
+
     } else {
       try {
         downloadStatus.totalFiles += 1;
@@ -429,15 +451,22 @@ export async function runDriveDownloadSingle(projectId: string): Promise<void> {
     }
 
     downloadStatus.totalUrls = urls.length;
-    
-    // Prepare DB statements
+
+    // Prepare DB statements. Each downloaded file becomes its own cache row,
+    // keyed by (project_id, file's GDrive URL), so the citation popover can
+    // deep-link to the actual file. Hygiene-skipped rows use the synthetic
+    // `skipped:<reason>:<id>` URL marker emitted by processUrl().
     const upsertDoc = db.prepare(`
-      INSERT OR REPLACE INTO documents_cache (url, content_text, content_type, fetch_status)
-      VALUES (?, ?, ?, 'success')
+      INSERT OR REPLACE INTO documents_cache (url, project_id, content_text, content_type, fetch_status, file_name)
+      VALUES (?, ?, ?, ?, 'success', ?)
+    `);
+    const upsertDocSkipped = db.prepare(`
+      INSERT OR REPLACE INTO documents_cache (url, project_id, fetch_status, file_name)
+      VALUES (?, ?, ?, ?)
     `);
     const upsertDocError = db.prepare(`
-      INSERT OR REPLACE INTO documents_cache (url, fetch_status, error_message)
-      VALUES (?, 'error', ?)
+      INSERT OR REPLACE INTO documents_cache (url, project_id, fetch_status, error_message)
+      VALUES (?, ?, 'error', ?)
     `);
 
     downloadStatus.currentProject = `${row.project_id}: ${row.name.slice(0, 40)}`;
@@ -445,27 +474,37 @@ export async function runDriveDownloadSingle(projectId: string): Promise<void> {
     for (let uIdx = 0; uIdx < urls.length; uIdx++) {
       const url = urls[uIdx];
       const isLoc = isLocal[uIdx];
-      
+
       try {
         if (!isLoc) {
           const { files } = await processUrl(drive, url, row.project_id, row.name);
-          
+
           for (const f of files) {
-            upsertDoc.run(url, f.textContent, f.localPath ? 'downloaded' : 'metadata');
+            if (f.webUrl.startsWith('skipped:')) {
+              const [, reason] = f.webUrl.split(':');
+              upsertDocSkipped.run(f.webUrl, row.project_id, `skipped_${reason}`, f.name || '');
+            } else {
+              upsertDoc.run(f.webUrl, row.project_id, f.textContent, f.localPath ? 'downloaded' : 'metadata', f.name || '');
+            }
           }
 
           if (files.length === 0) {
-            upsertDocError.run(url, 'No files found or not accessible');
+            upsertDocError.run(url, row.project_id, 'No files found or not accessible');
           }
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         downloadStatus.errors.push(`${row.project_id}: ${msg}`);
-        upsertDocError.run(url, msg);
+        upsertDocError.run(url, row.project_id, msg);
       }
 
       downloadStatus.processedUrls++;
     }
+
+    // Onda 1: dedupe pass — after all URLs of the project are ingested, mark
+    // rows with duplicate content as 'skipped_duplicate' so the LLM only sees
+    // one canonical copy.
+    dedupeProjectDocs(row.project_id);
 
     downloadStatus.currentProject = 'Complete';
   } catch (err: unknown) {
@@ -499,12 +538,16 @@ function normalizePrjMatch(raw: string): { canonical: string; digitsKey: string 
   };
 }
 
-export async function discoverAndAddProjectFromDrive(url: string): Promise<{
+export async function discoverAndAddProjectFromDrive(
+  url: string,
+  opts: { createMissing?: boolean } = {},
+): Promise<{
   created:   { projectId: string; name: string }[];
   linked:    { projectId: string; name: string }[];
   unmatched: { folderName: string; extracted: string }[];
   scannedFolders: number;
 }> {
+  const createMissing = opts.createMissing !== false;
   const drive = getDriveClient();
   const rootId = extractDriveId(url);
 
@@ -598,11 +641,15 @@ export async function discoverAndAddProjectFromDrive(url: string): Promise<{
         : folderLink;
       db.prepare('UPDATE projects SET link_folder = ? WHERE project_id = ?').run(newLinkFolder, matchedProjectId);
       linked.push({ projectId: matchedProjectId, name: existing.name || proj.folderName });
-    } else {
-      // No match anywhere → create a new stub. The user explicitly opted in to
-      // "if not exists, create" semantics, so this is expected.
+    } else if (createMissing) {
+      // No match anywhere → create a new stub. The "Add a Drive source" flow
+      // explicitly opts in to this; Sync All passes createMissing=false to
+      // avoid populating projects table with junk stubs picked up during a
+      // bulk root scan.
       db.prepare('INSERT INTO projects (project_id, name, link_folder) VALUES (?, ?, ?)').run(proj.canonical, proj.folderName, folderLink);
       created.push({ projectId: proj.canonical, name: proj.folderName });
+      unmatched.push({ folderName: proj.folderName, extracted: proj.canonical });
+    } else {
       unmatched.push({ folderName: proj.folderName, extracted: proj.canonical });
     }
   }
@@ -686,14 +733,21 @@ export async function runDriveDownload(): Promise<void> {
       fs.mkdirSync(DRIVE_LOCAL_ROOT, { recursive: true });
     }
 
-    // Prepare DB statement for caching
+    // Prepare DB statement for caching. Each file is its own row keyed by
+    // (project_id, file's GDrive URL). Error/no-files rows keep the folder URL
+    // since we never resolve a per-file URL on that path. Hygiene-skipped
+    // rows use the `skipped:<reason>:<id>` synthetic URL.
     const upsertDoc = db.prepare(`
-      INSERT OR REPLACE INTO documents_cache (url, content_text, content_type, fetch_status)
-      VALUES (?, ?, ?, 'success')
+      INSERT OR REPLACE INTO documents_cache (url, project_id, content_text, content_type, fetch_status, file_name)
+      VALUES (?, ?, ?, ?, 'success', ?)
+    `);
+    const upsertDocSkipped = db.prepare(`
+      INSERT OR REPLACE INTO documents_cache (url, project_id, fetch_status, file_name)
+      VALUES (?, ?, ?, ?)
     `);
     const upsertDocError = db.prepare(`
-      INSERT OR REPLACE INTO documents_cache (url, fetch_status, error_message)
-      VALUES (?, 'error', ?)
+      INSERT OR REPLACE INTO documents_cache (url, project_id, fetch_status, error_message)
+      VALUES (?, ?, 'error', ?)
     `);
 
     for (const proj of projectUrls) {
@@ -702,7 +756,7 @@ export async function runDriveDownload(): Promise<void> {
       for (let uIdx = 0; uIdx < proj.urls.length; uIdx++) {
         const url = proj.urls[uIdx];
         const isLoc = proj.isLocal[uIdx];
-        
+
         try {
           if (isLoc) {
             // Process local folder
@@ -728,27 +782,32 @@ export async function runDriveDownload(): Promise<void> {
               downloadStatus.totalFiles++;
               downloadStatus.downloadedFiles++;
               pushRecentFile(proj.projectId, path.basename(localPath));
-              upsertDoc.run(url, textContent.slice(0, 30000), 'local_folder');
+              upsertDoc.run(url, proj.projectId, textContent.slice(0, 30000), 'local_folder', path.basename(localPath));
             } else {
-              upsertDocError.run(url, 'Local path does not exist');
+              upsertDocError.run(url, proj.projectId, 'Local path does not exist');
             }
           } else {
             const { files } = await processUrl(drive, url, proj.projectId, proj.name);
-            
+
             for (const f of files) {
-              // Cache text content in DB
-              upsertDoc.run(url, f.textContent, f.localPath ? 'downloaded' : 'metadata');
+              if (f.webUrl.startsWith('skipped:')) {
+                const [, reason] = f.webUrl.split(':');
+                upsertDocSkipped.run(f.webUrl, proj.projectId, `skipped_${reason}`, f.name || '');
+              } else {
+                // Cache text content in DB, keyed by the file's own GDrive URL
+                upsertDoc.run(f.webUrl, proj.projectId, f.textContent, f.localPath ? 'downloaded' : 'metadata', f.name || '');
+              }
             }
 
             if (files.length === 0) {
-              upsertDocError.run(url, 'No files found or not accessible');
+              upsertDocError.run(url, proj.projectId, 'No files found or not accessible');
             }
           }
         } catch (err: unknown) {
           // URL-level error: log and continue to next URL
           const msg = err instanceof Error ? err.message : String(err);
           downloadStatus.errors.push(`${proj.projectId}: ${msg}`);
-          upsertDocError.run(url, msg);
+          upsertDocError.run(url, proj.projectId, msg);
         }
 
         downloadStatus.processedUrls++;
@@ -756,6 +815,9 @@ export async function runDriveDownload(): Promise<void> {
         // Small delay to avoid rate limiting
         if (!isLoc) await new Promise(resolve => setTimeout(resolve, 200));
       }
+
+      // Onda 1: dedupe pass per project (after all its URLs are ingested).
+      dedupeProjectDocs(proj.projectId);
     }
 
     downloadStatus.currentProject = 'Complete';
@@ -792,23 +854,65 @@ export function getDriveStatus(): DriveDownloadStatus {
 
 // ─── Get cached text content for a project's URLs ───────────────────────────
 
-export function getProjectDocuments(projectId: string): { url: string; content: string; status: string }[] {
+// Look up the cached file_name (and existence) for a list of document URLs.
+// Used by the impact engine to enrich LLM-supplied citations: the model returns
+// doc_url + snippet, and the server resolves the human-readable file name from
+// documents_cache so the popover doesn't have to trust the model on naming.
+export function getFileNamesForUrls(urls: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  if (urls.length === 0) return out;
   const db = getDb();
+  const placeholders = urls.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT url, file_name FROM documents_cache WHERE url IN (${placeholders})`
+  ).all(...urls) as { url: string; file_name: string }[];
+  for (const r of rows) {
+    if (r.file_name) out.set(r.url, r.file_name);
+  }
+  return out;
+}
+
+export function getProjectDocuments(projectId: string): { url: string; content: string; status: string; fileName: string }[] {
+  const db = getDb();
+  // Per-file rows: each downloaded file is its own row keyed by project_id +
+  // GDrive file URL. Skipped rows (deprecated / cross-PRJ / duplicate) are
+  // excluded — the LLM only sees clean canonical content.
   const rows = db.prepare(`
-    SELECT dc.url, dc.content_text, dc.fetch_status
-    FROM documents_cache dc
-    INNER JOIN projects p ON (
-      p.link_folder = dc.url OR p.link_positions = dc.url OR p.link_cioo = dc.url
-    )
-    WHERE p.project_id = ?
-    GROUP BY dc.url
-  `).all(projectId) as { url: string; content_text: string; fetch_status: string }[];
+    SELECT url, content_text, fetch_status, file_name
+    FROM documents_cache
+    WHERE project_id = ? AND fetch_status NOT LIKE 'skipped_%'
+    ORDER BY file_name
+  `).all(projectId) as { url: string; content_text: string; fetch_status: string; file_name: string }[];
 
   return rows.map(r => ({
     url: r.url,
     content: r.content_text || '',
     status: r.fetch_status,
+    fileName: r.file_name || '',
   }));
+}
+
+// Post-ingestion hygiene: marks redundant rows of the same project as
+// 'skipped_duplicate' so the LLM only sees one canonical copy of each unique
+// content blob. Idempotent — running it twice on the same DB state is a no-op.
+// Called from runDriveDownload* after all files for a project are ingested.
+export function dedupeProjectDocs(projectId: string): number {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id, url, file_name, content_text
+    FROM documents_cache
+    WHERE project_id = ? AND fetch_status = 'success'
+  `).all(projectId) as { id: number; url: string; file_name: string; content_text: string }[];
+
+  const toSkip = pickDuplicatesToSkip(
+    rows.map(r => ({ id: r.id, fileName: r.file_name, contentText: r.content_text })),
+  );
+  if (toSkip.length === 0) return 0;
+
+  const stmt = db.prepare(`UPDATE documents_cache SET fetch_status = 'skipped_duplicate' WHERE id = ?`);
+  const tx = db.transaction((ids: number[]) => { for (const id of ids) stmt.run(id); });
+  tx(toSkip as number[]);
+  return toSkip.length;
 }
 
 // ─── Get local file path for a project ──────────────────────────────────────

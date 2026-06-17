@@ -119,6 +119,25 @@ export type ViewType = 'graph' | 'matrix' | 'timeline' | 'detail' | 'impact' | '
 
 // ─── Impact Analysis ──────────────────────────────────────────────────────────
 
+// One citation backing a single impact explanation. doc_url is the original
+// Google Drive URL (already what we use as the cache key); file_name is the
+// human-readable name fetched from Drive metadata at download time; snippet is
+// the first sentence of the source paragraph the LLM grounded the claim on.
+export interface ImpactCitation {
+  doc_url: string;
+  file_name: string;
+  snippet: string;
+}
+
+// One entry in projects_impact.evidence_chain — points back to the Goals
+// extractor row + the specific claim or relation that generated this impact.
+export interface EvidenceChainEntry {
+  goal_id: number;
+  claim_idx?: number;
+  relation_idx?: number;
+  source: 'claim' | 'relation' | 'free';
+}
+
 export interface ProjectImpact {
   id: number;
   sourceProjectId: string;
@@ -133,6 +152,14 @@ export interface ProjectImpact {
   gioServices?: string[];
   // DDS entities affected when target='DDS_IMPACTS' (JSON array stored in DB)
   ddsEntities?: string[];
+  // Citations backing this row's explanation. Empty for legacy rows generated
+  // before the citation pipeline existed; UI must treat absence as "no source".
+  citations?: ImpactCitation[];
+  // Onda 4: trace from this impact row → which Goals claim/relation generated
+  // it. Empty for legacy rows. When `citations` is empty, the UI can fall
+  // back to fetching the underlying claim's evidence_quote + evidence_file via
+  // this chain. Shape: [{goal_id, claim_idx?|relation_idx?, source}]
+  evidenceChain?: EvidenceChainEntry[];
   // ─── Aggregation extras ───
   // When the API returns aggregated rows (default), one row represents all raw
   // edges between the same pair of projects (regardless of direction). The
@@ -141,6 +168,20 @@ export interface ProjectImpact {
   impactTypes?: string[];   // union of all impact_type values for this pair
   directions?: string[];    // union of all directions seen
   explanations?: string[];  // every raw explanation (primary first)
+  // Parallel to `explanations`: citationsByExplanation[i] backs explanations[i].
+  citationsByExplanation?: ImpactCitation[][];
+  // Parallel to `explanations`: the raw row's `impact_type` / `severity` that
+  // produced each explanation. Lets the UI annotate each "Reason for the
+  // impact" bullet with the specific badges instead of only showing the union
+  // at the card level.
+  impactTypeByExplanation?: string[];
+  severityByExplanation?: string[];
+  // Parallel to `explanations`: which GIO services / DDS entities the
+  // originating raw row pointed at. Lets the universe API filter messages
+  // per pseudo-node so clicking "Cloud Services" only shows explanations
+  // whose row touched Cloud Services (not the union of all GIO services).
+  gioServicesByExplanation?: string[][];
+  ddsEntitiesByExplanation?: string[][];
   count?: number;           // number of raw rows merged
   bidirectional?: boolean;  // true if both A→B and B→A had raw rows
 }

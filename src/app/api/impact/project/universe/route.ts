@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { getProjectImpacts, aggregateImpacts } from '@/lib/impact-engine';
-import type { ProjectImpact } from '@/lib/types';
+import type { ProjectImpact, ImpactCitation } from '@/lib/types';
 
 interface ProjectMeta {
   projectId: string;
@@ -19,6 +19,14 @@ interface PseudoNodeImpact {
   direction: string;
   impactTypes: string[];
   explanations: string[];
+  // citationsByExplanation[i] backs explanations[i]; empty array when the LLM
+  // could not ground that explanation in any document.
+  citationsByExplanation: ImpactCitation[][];
+  // Parallel: per-explanation impact_type and severity (the values from the
+  // original raw row that produced explanations[i]). Lets the UI render
+  // per-message badges instead of only the unioned card-level badges.
+  impactTypeByExplanation: string[];
+  severityByExplanation: string[];
   // The "primary" explanation (longest at highest severity)
   explanation: string;
 }
@@ -40,6 +48,9 @@ interface ProjectEdge {
   direction: string;
   impactTypes: string[];
   explanations: string[];
+  citationsByExplanation: ImpactCitation[][];
+  impactTypeByExplanation: string[];
+  severityByExplanation: string[];
   explanation: string;
   count: number;
   bidirectional: boolean;
@@ -60,21 +71,48 @@ function pickMaxSeverity(items: { severity: string }[]): string {
 function fanOutPseudo(
   impacts: ProjectImpact[],
   pseudoTarget: 'GIO_SERVICES' | 'DDS_IMPACTS',
-  pickList: (imp: ProjectImpact) => string[]
+  pickList: (imp: ProjectImpact) => string[],
+  pickPerExplanation: (imp: ProjectImpact) => string[][] | undefined,
 ): PseudoNode[] {
   const byName = new Map<string, PseudoNodeImpact[]>();
 
   for (const imp of impacts) {
     if (imp.sourceProjectId !== pseudoTarget && imp.targetProjectId !== pseudoTarget) continue;
     const names = pickList(imp);
+    const explanations = imp.explanations ?? [imp.explanation];
+    const cbe = imp.citationsByExplanation
+      ?? explanations.map((_, i) => (i === 0 ? (imp.citations ?? []) : []));
+    const itbe = imp.impactTypeByExplanation ?? explanations.map(() => imp.impactType);
+    const sbe = imp.severityByExplanation ?? explanations.map(() => imp.severity);
+    const perExpLists = pickPerExplanation(imp);
+
     for (const name of names) {
+      // Filter explanations to those whose ORIGINATING raw row pointed at
+      // this specific service/entity. Without this, the aggregate's UNION
+      // of services causes every node to show every message — leaking
+      // Cloud Services messages into Security & Compliance card, etc.
+      let keepIdx: number[];
+      if (Array.isArray(perExpLists) && perExpLists.length === explanations.length) {
+        keepIdx = explanations
+          .map((_, i) => i)
+          .filter(i => (perExpLists[i] || []).includes(name));
+        // Defensive fallback: if the parallel array misses (legacy data),
+        // keep all explanations so the card isn't empty.
+        if (keepIdx.length === 0) keepIdx = explanations.map((_, i) => i);
+      } else {
+        keepIdx = explanations.map((_, i) => i);
+      }
+
       const arr = byName.get(name) ?? [];
       arr.push({
         impactId: imp.id,
         severity: imp.severity,
         direction: imp.direction,
         impactTypes: imp.impactTypes ?? [imp.impactType],
-        explanations: imp.explanations ?? [imp.explanation],
+        explanations: keepIdx.map(i => explanations[i]),
+        citationsByExplanation: keepIdx.map(i => cbe[i] ?? []),
+        impactTypeByExplanation: keepIdx.map(i => itbe[i] ?? imp.impactType),
+        severityByExplanation: keepIdx.map(i => sbe[i] ?? imp.severity),
         explanation: imp.explanation,
       });
       byName.set(name, arr);
@@ -86,6 +124,104 @@ function fanOutPseudo(
     severity: pickMaxSeverity(impacts),
     impacts,
   })).sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
+}
+
+// Onda 4 fallback: when impact rows have empty `citations[]` but a populated
+// `evidenceChain` (which happens since Goals now extracts atomic claims and
+// the Impact LLM is told to leave evidence in the claim itself), synthesize
+// citations from the underlying claim/relation. Runs on RAW rows (before
+// aggregation) so each row's chain produces its own citation set — the
+// downstream `aggregateImpacts` then keeps `citationsByExplanation[i]`
+// aligned with `explanations[i]` naturally.
+function enrichEmptyCitations(impacts: ProjectImpact[]): void {
+  const db = getDb();
+
+  const goalIds = new Set<number>();
+  for (const imp of impacts) {
+    const hasCitations = (imp.citations?.length ?? 0) > 0;
+    if (hasCitations) continue;
+    for (const e of imp.evidenceChain ?? []) {
+      if (typeof e.goal_id === 'number') goalIds.add(e.goal_id);
+    }
+  }
+  if (goalIds.size === 0) return;
+
+  const ids = Array.from(goalIds);
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT id, project_id, impact_claims, project_relations FROM project_goals WHERE id IN (${placeholders})`
+  ).all(...ids) as Array<{ id: number; project_id: string; impact_claims: string; project_relations: string }>;
+  const goalById = new Map<number, { project_id: string; claims: Array<{ evidence_file: string; evidence_quote: string }>; relations: Array<{ evidence_quote: string; source_file: string }> }>();
+  for (const r of rows) {
+    let claims: Array<{ evidence_file: string; evidence_quote: string }> = [];
+    let relations: Array<{ evidence_quote: string; source_file: string }> = [];
+    try { const v = JSON.parse(r.impact_claims || '[]'); if (Array.isArray(v)) claims = v; } catch { /* ignore */ }
+    try { const v = JSON.parse(r.project_relations || '[]'); if (Array.isArray(v)) relations = v; } catch { /* ignore */ }
+    goalById.set(r.id, { project_id: r.project_id, claims, relations });
+  }
+
+  // Build file_name → (doc_url) map for the project_ids we care about. The
+  // Goals LLM emits `evidence_file` as a filename WITHOUT [doc_url=...] prefix.
+  // The convention is inconsistent across paths (on-disk uses underscores +
+  // .txt; documents_cache uses spaces + no extension), so we index by a
+  // normalized key that strips extensions and unifies separators.
+  const projectIds = Array.from(new Set(rows.map(r => r.project_id)));
+  const normalizeName = (s: string) =>
+    s.toLowerCase()
+      .replace(/\.(txt|csv|pdf|docx?|xlsx?|md)$/i, '')
+      .replace(/[_\s-]+/g, ' ')
+      .replace(/[()]/g, '')
+      .trim();
+  const fileMap = new Map<string, { url: string; file_name: string }>(); // key = `${project_id}|${normalized_name}`
+  if (projectIds.length > 0) {
+    const ph = projectIds.map(() => '?').join(',');
+    const docs = db.prepare(
+      `SELECT project_id, url, file_name FROM documents_cache WHERE project_id IN (${ph}) AND fetch_status = 'success'`
+    ).all(...projectIds) as Array<{ project_id: string; url: string; file_name: string }>;
+    for (const d of docs) {
+      fileMap.set(`${d.project_id}|${normalizeName(d.file_name)}`, { url: d.url, file_name: d.file_name });
+    }
+  }
+
+  for (const imp of impacts) {
+    const hasCitations = (imp.citations?.length ?? 0) > 0;
+    if (hasCitations) continue;
+    const chain = imp.evidenceChain ?? [];
+    if (chain.length === 0) continue;
+    const synth: ImpactCitation[] = [];
+    const seen = new Set<string>();
+    for (const e of chain) {
+      const g = goalById.get(e.goal_id);
+      if (!g) continue;
+      let quote = '', fileName = '';
+      if (e.source === 'claim' && typeof e.claim_idx === 'number') {
+        const c = g.claims[e.claim_idx];
+        if (!c) continue;
+        quote = c.evidence_quote; fileName = c.evidence_file;
+      } else if (e.source === 'relation' && typeof e.relation_idx === 'number') {
+        const r = g.relations[e.relation_idx];
+        if (!r) continue;
+        quote = r.evidence_quote; fileName = r.source_file;
+      } else {
+        continue; // 'free' source has no quote to surface
+      }
+      if (!quote) continue;
+      const key = `${g.project_id}|${fileName}|${quote.slice(0, 60)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const doc = fileMap.get(`${g.project_id}|${normalizeName(fileName)}`);
+      synth.push({
+        doc_url: doc?.url || '',
+        file_name: doc?.file_name || fileName || '(unknown file)',
+        snippet: quote,
+      });
+    }
+    if (synth.length > 0) {
+      // Mutate the RAW row in place — aggregateImpacts later reads
+      // `citations` from each row and aligns it with explanations[i].
+      imp.citations = synth;
+    }
+  }
 }
 
 function lookupProjectMeta(projectIds: string[]): Map<string, ProjectMeta> {
@@ -133,6 +269,11 @@ export async function GET(request: NextRequest) {
     // 1) Fetch all raw impacts for this project, then aggregate (merges duplicate
     //    pairs and unions gioServices/ddsEntities/explanations).
     const raw = getProjectImpacts(projectId);
+    // Onda 4 fallback: backfill each raw row's empty citations from its own
+    // evidenceChain → goal claim/relation. RUNS BEFORE AGGREGATE so the
+    // per-row alignment is preserved through aggregateImpacts (each
+    // explanations[i] keeps its specific citationsByExplanation[i]).
+    enrichEmptyCitations(raw);
     const aggregated = aggregateImpacts(raw);
 
     // 2) Center project meta
@@ -146,11 +287,17 @@ export async function GET(request: NextRequest) {
       description: '',
     };
 
-    // 3) Fan out GIO services into nodes
-    const gioNodes = fanOutPseudo(aggregated, 'GIO_SERVICES', imp => imp.gioServices ?? []);
+    // 3) Fan out GIO services into nodes — pick the union of services AND
+    //    the per-explanation services so each node card filters down to only
+    //    its own messages instead of receiving the project's whole union.
+    const gioNodes = fanOutPseudo(aggregated, 'GIO_SERVICES',
+      imp => imp.gioServices ?? [],
+      imp => imp.gioServicesByExplanation);
 
     // 4) Fan out DDS entities into nodes
-    const ddsNodes = fanOutPseudo(aggregated, 'DDS_IMPACTS', imp => imp.ddsEntities ?? []);
+    const ddsNodes = fanOutPseudo(aggregated, 'DDS_IMPACTS',
+      imp => imp.ddsEntities ?? [],
+      imp => imp.ddsEntitiesByExplanation);
 
     // 5) Project-to-project edges (exclude pseudo-targets)
     const projectEdgeRaw = aggregated.filter(imp =>
@@ -167,6 +314,9 @@ export async function GET(request: NextRequest) {
     const projectEdges: ProjectEdge[] = projectEdgeRaw.map(imp => {
       const otherId = imp.sourceProjectId === projectId ? imp.targetProjectId : imp.sourceProjectId;
       const meta = otherMeta.get(otherId);
+      const explanations = imp.explanations ?? [imp.explanation];
+      const cbe = imp.citationsByExplanation
+        ?? explanations.map((_, i) => (i === 0 ? (imp.citations ?? []) : []));
       return {
         otherProjectId: otherId,
         otherProjectName: meta?.name || otherId,
@@ -174,7 +324,10 @@ export async function GET(request: NextRequest) {
         severity: imp.severity,
         direction: imp.direction,
         impactTypes: imp.impactTypes ?? [imp.impactType],
-        explanations: imp.explanations ?? [imp.explanation],
+        explanations,
+        citationsByExplanation: cbe,
+        impactTypeByExplanation: imp.impactTypeByExplanation ?? explanations.map(() => imp.impactType),
+        severityByExplanation: imp.severityByExplanation ?? explanations.map(() => imp.severity),
         explanation: imp.explanation,
         count: imp.count ?? 1,
         bidirectional: imp.bidirectional ?? false,

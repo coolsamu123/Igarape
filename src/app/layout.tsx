@@ -5,7 +5,7 @@ import { ProjectProvider } from "@/context/ProjectContext";
 import { isPublicHost } from '@/lib/public-host';
 
 export const metadata: Metadata = {
-  title: "Strom — Portfolio Intelligence",
+  title: "Alumen — Portfolio Intelligence",
   description: "Air Liquide — Project intersection analysis",
   icons: {
     icon: '/icon-192.png',

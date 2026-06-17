@@ -84,15 +84,19 @@ function initSchema(db: Database.Database) {
 
     CREATE TABLE IF NOT EXISTS documents_cache (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      url             TEXT NOT NULL UNIQUE,
+      url             TEXT NOT NULL,
+      project_id      TEXT NOT NULL DEFAULT '',
       content_text    TEXT DEFAULT '',
       content_type    TEXT DEFAULT '',
       fetch_status    TEXT DEFAULT '',
       error_message   TEXT DEFAULT '',
-      fetched_at      TEXT DEFAULT (datetime('now'))
+      fetched_at      TEXT DEFAULT (datetime('now')),
+      file_name       TEXT DEFAULT '',
+      UNIQUE(project_id, url)
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_url ON documents_cache(url);
+    CREATE INDEX IF NOT EXISTS idx_documents_project ON documents_cache(project_id);
+    CREATE INDEX IF NOT EXISTS idx_documents_url ON documents_cache(url);
 
     CREATE TABLE IF NOT EXISTS projects_impact (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +109,7 @@ function initSchema(db: Database.Database) {
       batch_id TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now')),
       gio_services TEXT DEFAULT '[]',
+      citations TEXT DEFAULT '[]',
       UNIQUE(source_project_id, target_project_id, impact_type)
     );
 
@@ -188,6 +193,7 @@ function initSchema(db: Database.Database) {
       generated_at  TEXT NOT NULL DEFAULT (datetime('now')),
       source_sig    TEXT NOT NULL,
       duration_ms   INTEGER,
+      sources_json  TEXT DEFAULT '[]',
       UNIQUE(project_id, kind, target)
     );
 
@@ -231,7 +237,45 @@ function initSchema(db: Database.Database) {
     // Ignore if column already exists
   }
   try {
+    db.exec('ALTER TABLE projects_impact ADD COLUMN citations TEXT DEFAULT "[]"');
+  } catch {
+    // Ignore if column already exists
+  }
+  // Onda 4: trace from impact_id → which goal/claim/dive generated it.
+  // Format: JSON array of { goal_id?, claim_idx?, dive_id?, source: 'claim'|'relation'|'free' }.
+  try {
+    db.exec('ALTER TABLE projects_impact ADD COLUMN evidence_chain TEXT DEFAULT "[]"');
+  } catch {
+    // Ignore if column already exists
+  }
+  try {
     db.exec('ALTER TABLE projects ADD COLUMN services TEXT DEFAULT "[]"');
+  } catch {
+    // Ignore if column already exists
+  }
+  try {
+    db.exec("ALTER TABLE documents_cache ADD COLUMN file_name TEXT DEFAULT ''");
+  } catch {
+    // Ignore if column already exists
+  }
+  // Per-file rows: cache is keyed by (project_id, file's own GDrive URL) so the
+  // popover can deep-link to the actual file instead of the parent folder. On
+  // databases provisioned before this change, the old UNIQUE(url) index would
+  // reject the new (project_id,url) duplicates, so drop it; the CREATE TABLE
+  // above already defines the composite uniqueness on fresh DBs.
+  try {
+    db.exec("ALTER TABLE documents_cache ADD COLUMN project_id TEXT NOT NULL DEFAULT ''");
+  } catch {
+    // Ignore if column already exists
+  }
+  try { db.exec('DROP INDEX IF EXISTS idx_documents_url'); } catch { /* ignore */ }
+  try {
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_proj_url ON documents_cache(project_id, url)');
+  } catch { /* ignore */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_documents_project ON documents_cache(project_id)'); } catch { /* ignore */ }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_documents_url ON documents_cache(url)'); } catch { /* ignore */ }
+  try {
+    db.exec("ALTER TABLE impact_deep_dives ADD COLUMN sources_json TEXT DEFAULT '[]'");
   } catch {
     // Ignore if column already exists
   }
@@ -249,6 +293,15 @@ function initSchema(db: Database.Database) {
   addGoalCol('data_classifications',  "TEXT DEFAULT '[]'");
   addGoalCol('mentioned_projects',    "TEXT DEFAULT '[]'");
   addGoalCol('prompt_version',        'INTEGER DEFAULT 0');
+  // Onda 2 of the Goals→Impact refactor: structured project-to-project
+  // relationships and explicit out-of-scope statements, replacing the
+  // free-text-only inference path the Impact engine was forced to use.
+  addGoalCol('project_relations',     "TEXT DEFAULT '[]'");
+  addGoalCol('out_of_scope',          "TEXT DEFAULT '[]'");
+  // Onda 3: atomic, anchored impact_claims (replaces gio_sl_dds_impacts prose
+  // as the authoritative source for GIO/DDS edges) + structured timeline.
+  addGoalCol('impact_claims',         "TEXT DEFAULT '[]'");
+  addGoalCol('timeline_struct',       "TEXT DEFAULT '{}'");
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_goals_tech_tags ON project_goals(tech_tags);

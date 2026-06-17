@@ -35,14 +35,21 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# local secrets / runtime config (Gemini API key etc.)
+/config.json
+
 # data (SQLite + uploaded files)
 /data/cioo.db
+/data/cioo.db.before-*
 /data/cioo.db-wal
 /data/cioo.db-shm
 /data/database.sqlite
 /data/uploads/
 /data/service-account.json
+/data/service_mappings.json
 /data/drive/
+/data/lost+found/
+/data/*.xlsx
 
 # local dev / throwaway scripts and test artifacts
 /gdrive_manual_test/

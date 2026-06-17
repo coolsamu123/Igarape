@@ -1,11 +1,5 @@
-// Next.js calls this once when the server boots (both dev and prod).
-// Used to start the auto-discovery scheduler.
-// See: https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
+// No-op. There is no scheduler, no background work to start at boot.
+// Stale auto_runs rows (status='running' left behind by a killed process) are
+// healed lazily inside drive-panel-state on the next API poll.
 
-export async function register() {
-  // Only run on the Node.js runtime (skip Edge/Middleware contexts)
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { startSchedulerOnce } = await import('./lib/scheduler');
-    startSchedulerOnce();
-  }
-}
+export async function register() {}

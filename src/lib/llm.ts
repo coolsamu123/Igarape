@@ -1,7 +1,9 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import fs from 'fs';
+import path from 'path';
 import { getDb } from './db';
 
-export type LLMProvider = 'gemini' | 'deepseek';
+export type LLMProvider = 'gemini';
 export type ModelSlot = 'fast' | 'pro';
 
 export class LLMCapExceededError extends Error {
@@ -12,6 +14,30 @@ export class LLMCapExceededError extends Error {
 }
 
 const DEFAULT_DAILY_CAP = 500;
+const DEFAULT_MODEL = 'gemini-3-pro';
+const CONFIG_PATH = path.join(process.cwd(), 'config.json');
+
+interface AppConfig {
+  geminiApiKey?: string;
+  model?: string;
+}
+
+let cachedConfig: { mtimeMs: number; config: AppConfig } | null = null;
+
+function readConfig(): AppConfig {
+  try {
+    const stat = fs.statSync(CONFIG_PATH);
+    if (cachedConfig && cachedConfig.mtimeMs === stat.mtimeMs) {
+      return cachedConfig.config;
+    }
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
+    const parsed = JSON.parse(raw) as AppConfig;
+    cachedConfig = { mtimeMs: stat.mtimeMs, config: parsed };
+    return parsed;
+  } catch {
+    return {};
+  }
+}
 
 function getDailyCap(): number {
   const raw = process.env.STROM_LLM_DAILY_CAP;
@@ -87,31 +113,19 @@ function recordLLMCall(args: {
   );
 }
 
-const MODEL_MAP: Record<LLMProvider, Record<ModelSlot, string>> = {
-  gemini: {
-    fast: 'gemini-2.0-flash',
-    pro: 'gemini-2.5-pro',
-  },
-  deepseek: {
-    fast: 'deepseek-chat',
-    pro: 'deepseek-reasoner',
-  },
-};
-
 export function getActiveProvider(): LLMProvider {
-  const raw = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
-  return raw === 'deepseek' ? 'deepseek' : 'gemini';
+  return 'gemini';
 }
 
-export function resolveModelName(slot: ModelSlot, provider: LLMProvider = getActiveProvider()): string {
-  return MODEL_MAP[provider][slot];
+export function resolveModelName(_slot: ModelSlot, _provider: LLMProvider = 'gemini'): string {
+  return readConfig().model || DEFAULT_MODEL;
 }
 
-function getApiKey(provider: LLMProvider): string {
-  const envKey = provider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'GEMINI_API_KEY';
-  const key = process.env[envKey];
-  if (!key || key === 'your_gemini_api_key_here' || key === 'your_deepseek_api_key_here') {
-    throw new Error(`${envKey} not set in .env.local`);
+function getApiKey(): string {
+  const fromConfig = readConfig().geminiApiKey;
+  const key = (fromConfig && fromConfig.trim()) || process.env.GEMINI_API_KEY;
+  if (!key || key === 'your_gemini_api_key_here') {
+    throw new Error('geminiApiKey not set in config.json');
   }
   return key;
 }
@@ -126,6 +140,12 @@ export interface GenerateContentParams {
    * accounting and the stats panel. Defaults to 'unspecified'.
    */
   context?: string;
+  /**
+   * Sampling temperature. Defaults to the model's default. Pass a low value
+   * (e.g. 0.2–0.3) for analytical tasks where determinism matters more than
+   * variety (deep-dive, impact, goals).
+   */
+  temperature?: number;
 }
 
 export interface GenerateContentResult {
@@ -139,8 +159,9 @@ export async function generateContent({
   model = 'fast',
   json = false,
   context = 'unspecified',
+  temperature,
 }: GenerateContentParams): Promise<GenerateContentResult> {
-  const provider = getActiveProvider();
+  const provider: LLMProvider = 'gemini';
   const modelName = resolveModelName(model, provider);
 
   // Daily cap check — runs before the API call so a runaway loop can't blow past the budget.
@@ -156,9 +177,7 @@ export async function generateContent({
 
   const startedAt = Date.now();
   try {
-    const text = provider === 'gemini'
-      ? await callGemini(prompt, modelName, json)
-      : await callDeepSeek(prompt, modelName, json);
+    const text = await callGemini(prompt, modelName, json, temperature);
 
     recordLLMCall({
       provider, model: modelName, context, status: 'success',
@@ -176,55 +195,37 @@ export async function generateContent({
   }
 }
 
-async function callGemini(prompt: string, modelName: string, json: boolean): Promise<string> {
-  const apiKey = getApiKey('gemini');
+async function callGemini(prompt: string, modelName: string, json: boolean, temperature?: number): Promise<string> {
+  const apiKey = getApiKey();
   const genAI = new GoogleGenerativeAI(apiKey);
+  const generationConfig: Record<string, unknown> = {};
+  if (json) generationConfig.responseMimeType = 'application/json';
+  if (typeof temperature === 'number') generationConfig.temperature = temperature;
   const model = genAI.getGenerativeModel({
     model: modelName,
-    generationConfig: json ? { responseMimeType: 'application/json' } : undefined,
+    generationConfig: Object.keys(generationConfig).length ? generationConfig : undefined,
   });
   const result = await model.generateContent(prompt);
   return result.response.text();
 }
 
-async function callDeepSeek(prompt: string, modelName: string, json: boolean): Promise<string> {
-  const apiKey = getApiKey('deepseek');
-  const res = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages: [{ role: 'user', content: prompt }],
-      ...(json ? { response_format: { type: 'json_object' } } : {}),
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`DeepSeek API error ${res.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const data = await res.json() as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const text = data.choices?.[0]?.message?.content;
-  if (typeof text !== 'string') {
-    throw new Error('DeepSeek API returned no content');
-  }
-  return text;
-}
-
 export async function pingProvider(): Promise<{ provider: LLMProvider; model: string; reply: string }> {
-  const provider = getActiveProvider();
+  const provider: LLMProvider = 'gemini';
   const modelName = resolveModelName('fast', provider);
-  const expected = `${provider === 'deepseek' ? 'DeepSeek' : 'Gemini'} connection OK. Model: ${modelName}.`;
+  const expected = `Gemini connection OK. Model: ${modelName}.`;
   const { text } = await generateContent({
     prompt: `Reply with exactly: "${expected}" Nothing else.`,
     model: 'fast',
     context: 'admin-test',
   });
   return { provider, model: modelName, reply: text.trim() };
+}
+
+export function isGeminiConfigured(): boolean {
+  try {
+    getApiKey();
+    return true;
+  } catch {
+    return false;
+  }
 }

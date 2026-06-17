@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzePairwise, analyzeCluster } from '@/lib/gemini';
-import { getActiveProvider } from '@/lib/llm';
+import { isGeminiConfigured } from '@/lib/llm';
 import type { ProjectSummary } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
@@ -18,11 +18,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const provider = getActiveProvider();
-    const envKey = provider === 'deepseek' ? 'DEEPSEEK_API_KEY' : 'GEMINI_API_KEY';
-    if (!process.env[envKey]) {
+    if (!isGeminiConfigured()) {
       return NextResponse.json(
-        { error: `${envKey} not configured. Add it to .env.local` },
+        { error: 'geminiApiKey not configured. Add it to config.json' },
         { status: 500 }
       );
     }

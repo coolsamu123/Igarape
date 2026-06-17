@@ -10,7 +10,7 @@ const NAV_ITEMS: { key: ViewType; label: string }[] = [
   { key: 'detail', label: '≡ Details' },
   { key: 'goals', label: '✦ Goals Extractor' },
   { key: 'drive', label: '☁ Drive Sync' },
-  { key: 'strom', label: '⟳ Strom' },
+  { key: 'strom', label: '✦ Alumen' },
 ];
 
 const PUBLIC_VIEWS: ViewType[] = ['graph', 'timeline', 'detail', 'impact'];
@@ -24,10 +24,10 @@ export default function Header() {
   return (
     <div className="px-6 py-3 border-b border-line flex items-center gap-4 bg-surface">
       <div className="flex items-center gap-3">
-        <img src="/icon-192.png" alt="Strom" className="w-10 h-10 rounded-lg" />
+        <img src="/icon-192.png" alt="Alumen" className="w-10 h-10 rounded-lg" />
         <div className="leading-none">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-extrabold text-ink-1 tracking-tight">Strom</span>
+            <span className="text-2xl font-extrabold text-ink-1 tracking-tight">Alumen</span>
             <span className="text-sm font-medium text-ink-4 tracking-tight">— Portfolio Intelligence</span>
           </div>
           <div className="text-xs text-ink-muted mt-1">Air Liquide</div>

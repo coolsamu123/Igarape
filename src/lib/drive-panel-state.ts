@@ -8,7 +8,6 @@ import {
   isAutoCycleRunning,
   getAutoCycleStage,
 } from '@/lib/auto-pipeline';
-import { getEffectiveSchedules } from '@/lib/scheduler';
 import { getTodayLLMStats } from '@/lib/llm';
 import { getSyncAllState, isSyncAllRunning } from '@/lib/drive-sync-all';
 
@@ -30,7 +29,6 @@ export interface DrivePanelState {
     withImpacts: number;
   };
   todayLLM: ReturnType<typeof getTodayLLMStats>;
-  schedule: ReturnType<typeof getEffectiveSchedules>;
   watchRoots: ReturnType<typeof listWatchRoots>;
   lastRun: ReturnType<typeof getLastAutoRun>;
   syncAll: ReturnType<typeof getSyncAllState>;
@@ -50,6 +48,21 @@ export interface DrivePanelState {
 
 export function buildDrivePanelState(): DrivePanelState {
   const db = getDb();
+
+  // Lazy heal: if a previous process was killed mid-cycle (no scheduler now,
+  // but Sync All / manual triggers still write to auto_runs), the row stays
+  // 'running' forever. Mark anything still running with no finished_at and
+  // started > 30 min ago as aborted so the UI doesn't show a phantom.
+  try {
+    db.prepare(`
+      UPDATE auto_runs
+      SET finished_at = datetime('now'),
+          status = 'aborted',
+          errors_json = json_insert(COALESCE(NULLIF(errors_json,''),'[]'),'$[#]','Aborted: stale running row healed by panel-state')
+      WHERE status = 'running'
+        AND (julianday('now') - julianday(started_at)) * 24 * 60 > 30
+    `).run();
+  } catch { /* ignore */ }
 
   const distinctProjectIds = db.prepare(
     'SELECT DISTINCT project_id FROM projects'
@@ -127,7 +140,6 @@ export function buildDrivePanelState(): DrivePanelState {
     },
     counts: { totalProjects, withFiles, withGoals, withImpacts },
     todayLLM: getTodayLLMStats(),
-    schedule: getEffectiveSchedules(),
     watchRoots: listWatchRoots(),
     lastRun: getLastAutoRun(),
     syncAll,
